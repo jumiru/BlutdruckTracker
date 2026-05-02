@@ -1,0 +1,45 @@
+### Android ###
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Keystore files
+*.jks
+*.keystore
+
+# Proguard
+proguard/
+
+# Kotlin
+*.class
+
+# Generated files
+app/build/
+
+### Gradle ###
+.gradle
+**/build/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+.gradletasknamecache
+
+### IntelliJ / Android Studio ###
+*.iws
+out/
+.idea/
+
+### OS ###
+.DS_Store
+Thumbs.db
+

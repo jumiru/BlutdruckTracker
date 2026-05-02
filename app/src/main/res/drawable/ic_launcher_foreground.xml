@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stilisiertes Herz-Symbol als App-Icon -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Weißer Badge-Kreis -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,14C31.9,14,14,31.9,14,54s17.9,40,40,40s40,-17.9,40,-40S76.1,14,54,14z" />
+
+    <!-- Subtiler Blau-Ring -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1565C0"
+        android:strokeWidth="2"
+        android:pathData="M54,20C35.2,20,20,35.2,20,54s15.2,34,34,34s34,-15.2,34,-34S72.8,20,54,20z" />
+
+    <!-- Rotes Herz -->
+    <path
+        android:fillColor="#E53935"
+        android:pathData="M54,73C54,73,34,61,34,47C34,40.4,39.4,35,46,35C49.8,35,53,37,54,40C55,37,58.2,35,62,35C68.6,35,74,40.4,74,47C74,61,54,73,54,73z" />
+
+    <!-- EKG-Pulslinie in Blau über dem Herz -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#1565C0"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M27,54 L37,54 L43,43 L50,66 L56,49 L62,58 L67,54 L81,54" />
+
+</vector>

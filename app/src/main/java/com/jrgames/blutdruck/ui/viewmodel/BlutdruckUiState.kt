@@ -1,5 +1,6 @@
 package com.jrgames.blutdruck.ui.viewmodel
 
+import com.jrgames.blutdruck.data.backup.BackupConfig
 import com.jrgames.blutdruck.data.local.MeasurementSession
 
 data class BlutdruckUiState(
@@ -9,5 +10,9 @@ data class BlutdruckUiState(
     val isSaving: Boolean = false,
     val saveSuccess: Boolean = false,
     val errorMessage: String? = null,
+    // Backup
+    val backupConfig: BackupConfig = BackupConfig(),
+    val isBackingUp: Boolean = false,
+    val lastBackupResult: String? = null,  // null = kein Ergebnis, sonst Meldung
 )
 

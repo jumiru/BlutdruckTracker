@@ -4,9 +4,14 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.jrgames.blutdruck.data.backup.BackupConfig
+import com.jrgames.blutdruck.data.backup.BackupPreferences
+import com.jrgames.blutdruck.data.backup.BackupResult
+import com.jrgames.blutdruck.data.backup.WebDavBackupService
 import com.jrgames.blutdruck.data.local.BlutdruckDatabase
 import com.jrgames.blutdruck.data.local.MeasurementSession
 import com.jrgames.blutdruck.data.repo.MeasurementRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +21,7 @@ import kotlinx.coroutines.launch
 
 class BlutdruckViewModel(
     private val repository: MeasurementRepository,
+    private val backupPreferences: BackupPreferences,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BlutdruckUiState())
@@ -37,6 +43,11 @@ class BlutdruckViewModel(
                 _uiState.update { it.copy(noteSuggestions = notes) }
             }
         }
+        viewModelScope.launch {
+            backupPreferences.config.collectLatest { cfg ->
+                _uiState.update { it.copy(backupConfig = cfg) }
+            }
+        }
     }
 
     fun saveMeasurement(session: MeasurementSession) {
@@ -53,14 +64,34 @@ class BlutdruckViewModel(
 
     fun clearSaveSuccess() = _uiState.update { it.copy(saveSuccess = false) }
     fun clearError()       = _uiState.update { it.copy(errorMessage = null) }
+    fun clearBackupResult() = _uiState.update { it.copy(lastBackupResult = null) }
+
+    fun saveBackupConfig(config: BackupConfig) {
+        viewModelScope.launch { backupPreferences.save(config) }
+    }
+
+    fun triggerBackup() {
+        val state = _uiState.value
+        if (state.isBackingUp) return
+        _uiState.update { it.copy(isBackingUp = true, lastBackupResult = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = WebDavBackupService.backup(state.backupConfig, state.sessions)
+            val msg = when (result) {
+                is BackupResult.Success -> "✅ Gesichert: ${result.fileName}"
+                is BackupResult.Error   -> "❌ Fehler: ${result.message}"
+            }
+            _uiState.update { it.copy(isBackingUp = false, lastBackupResult = msg) }
+        }
+    }
 
     // ── Factory ──────────────────────────────────────────────────────────────
     class Factory(private val context: Context) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            val dao  = BlutdruckDatabase.getInstance(context).measurementDao()
-            val repo = MeasurementRepository(dao)
-            return BlutdruckViewModel(repo) as T
+            val dao   = BlutdruckDatabase.getInstance(context).measurementDao()
+            val repo  = MeasurementRepository(dao)
+            val prefs = BackupPreferences(context)
+            return BlutdruckViewModel(repo, prefs) as T
         }
     }
 }

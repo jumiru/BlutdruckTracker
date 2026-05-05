@@ -3,6 +3,7 @@ package com.jrgames.blutdruck
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import com.jrgames.blutdruck.ui.viewmodel.BlutdruckViewModel
 
@@ -14,6 +15,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             BlutdruckApp(viewModel = viewModel)
         }

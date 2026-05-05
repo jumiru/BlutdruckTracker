@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -54,6 +55,14 @@ fun MeasureScreen(
     var noteText by remember { mutableStateOf("") }
 
     var secondsLeft by remember { mutableIntStateOf(30) }
+
+    // Bildschirm während der Messung wach halten; nach Summary wieder freigeben
+    val view = LocalView.current
+    val keepScreenOn = phase !is Phase.Summary
+    DisposableEffect(keepScreenOn) {
+        if (keepScreenOn) view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
 
     LaunchedEffect(phase) {
         if (phase is Phase.Countdown) {
@@ -100,6 +109,7 @@ fun MeasureScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .padding(horizontal = 24.dp),
         ) {
             when (val p = phase) {
@@ -206,20 +216,23 @@ private fun InputStep(
         BpReading(sysText.toInt(), diaText.toInt(), pulseText.toInt()) else null
 
     Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(top = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Step-Indikator
         StepIndicator(current = index)
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(20.dp))
 
         Text(
             "Messung ${index + 1} von 3",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
 
         // Eingabefelder
         BpTextField(label = "Systolisch (mmHg)",  value = sysText,   onValue = { sysText   = it }, range = 60..250)
@@ -228,37 +241,42 @@ private fun InputStep(
         Spacer(Modifier.height(12.dp))
         BpTextField(label = "Herzfrequenz (/min)", value = pulseText, onValue = { pulseText = it }, range = 30..220)
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(20.dp))
 
-        // Primär-Aktion: weitere Messung oder fertig
-        Button(
-            onClick  = { reading?.let(onConfirm) },
-            enabled  = isValid,
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-            shape    = RoundedCornerShape(14.dp),
+        // Beide Buttons nebeneinander
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                if (index < 2) "Weiter → 30 s Pause" else "Fertig",
-                fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        // Sekundär-Aktion: bereits jetzt abschließen (ab erster Messung sichtbar)
-        if (index >= 0) {
-            Spacer(Modifier.height(10.dp))
+            // Sekundär-Aktion: jetzt abschließen
             OutlinedButton(
                 onClick  = { reading?.let(onFinishNow) },
                 enabled  = isValid,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
+                modifier = Modifier.weight(1f).height(54.dp),
                 shape    = RoundedCornerShape(14.dp),
             ) {
                 Text(
                     when (index) {
-                        0    -> "Mit 1 Messung abschließen"
-                        1    -> "Mit 2 Messungen abschließen"
-                        else -> "Mit 3 Messungen abschließen"
+                        0    -> "Mit 1 abschließen"
+                        1    -> "Mit 2 abschließen"
+                        else -> "Mit 3 abschließen"
                     },
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            // Primär-Aktion: Weiter oder Fertig
+            Button(
+                onClick  = { reading?.let(onConfirm) },
+                enabled  = isValid,
+                modifier = Modifier.weight(1f).height(54.dp),
+                shape    = RoundedCornerShape(14.dp),
+            ) {
+                Text(
+                    if (index < 2) "Weiter" else "Fertig",
+                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
                 )
             }
         }

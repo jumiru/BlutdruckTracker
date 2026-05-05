@@ -3,7 +3,9 @@ package com.jrgames.blutdruck.ui.screen
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -16,6 +18,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -32,13 +35,22 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-// ── Diagramm-Datenpunkt ───────────────────────────────────────────────────────
+// ── Diagramm-Datenpunkt (pro Tag) ────────────────────────────────────────────
 
 private data class ChartPoint(
     val dateMillis: Long,
-    val avgSys:     Float,
-    val avgDia:     Float,
-    val avgPulse:   Float,
+    // Sys
+    val avgSys:  Float,
+    val minSys:  Float,
+    val maxSys:  Float,
+    // Dia
+    val avgDia:  Float,
+    val minDia:  Float,
+    val maxDia:  Float,
+    // Puls
+    val avgPulse: Float,
+    // Anzahl Sitzungen an diesem Tag (für Range-Balken-Entscheidung)
+    val count:    Int,
 )
 
 // ── Screen ───────────────────────────────────────────────────────────────────
@@ -58,17 +70,24 @@ fun ChartScreen(
         if (range == null) sessions else sessions.filter { it.timestampMillis in range.first until range.second }
     }
 
-    // Aggregiere nach Tag: Durchschnitt aller Sitzungen des Tages
     val dayFmt = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val chartPoints = remember(filtered) {
         filtered
             .groupBy { dayFmt.format(Date(it.timestampMillis)) }
             .map { (_, group) ->
+                val sysList   = group.map { it.avgSys }
+                val diaList   = group.map { it.avgDia }
+                val pulseList = group.map { it.avgPulse }
                 ChartPoint(
                     dateMillis = group.minOf { it.timestampMillis },
-                    avgSys     = group.map { it.avgSys }.average().toFloat(),
-                    avgDia     = group.map { it.avgDia }.average().toFloat(),
-                    avgPulse   = group.map { it.avgPulse }.average().toFloat(),
+                    avgSys     = sysList.average().toFloat(),
+                    minSys     = sysList.min(),
+                    maxSys     = sysList.max(),
+                    avgDia     = diaList.average().toFloat(),
+                    minDia     = diaList.min(),
+                    maxDia     = diaList.max(),
+                    avgPulse   = pulseList.average().toFloat(),
+                    count      = group.size,
                 )
             }
             .sortedBy { it.dateMillis }
@@ -88,7 +107,8 @@ fun ChartScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
             Spacer(Modifier.height(8.dp))
 
@@ -130,14 +150,14 @@ fun ChartScreen(
             Spacer(Modifier.height(12.dp))
 
             if (chartPoints.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
                     Text("Keine Messungen in diesem Zeitraum.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 // Legende
-                ChartLegend()
+                ChartLegend(hasRange = chartPoints.any { it.count > 1 })
                 Spacer(Modifier.height(12.dp))
 
                 // Diagramm
@@ -155,11 +175,11 @@ fun ChartScreen(
 
                 Spacer(Modifier.height(16.dp))
 
-                // Statistik-Zusammenfassung
-                if (chartPoints.isNotEmpty()) {
-                    ChartStats(chartPoints)
-                }
+                // Statistik-Zusammenfassung (auf Basis aller gefilterten Sessions)
+                ChartStats(filtered)
             }
+
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
@@ -167,11 +187,14 @@ fun ChartScreen(
 // ── Legende ───────────────────────────────────────────────────────────────────
 
 @Composable
-private fun ChartLegend() {
-    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+private fun ChartLegend(hasRange: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
         LegendItem(color = BpRed,   label = "Systolisch")
         LegendItem(color = BpBlue,  label = "Diastolisch")
         LegendItem(color = BpAmber, label = "Puls")
+        if (hasRange) {
+            LegendRangeItem(color = BpRed.copy(alpha = 0.25f), label = "Tagesbereich")
+        }
     }
 }
 
@@ -184,6 +207,15 @@ private fun LegendItem(color: Color, label: String) {
     }
 }
 
+@Composable
+private fun LegendRangeItem(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Surface(Modifier.size(width = 6.dp, height = 14.dp), color = color, shape = RoundedCornerShape(3.dp)) {}
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 // ── Liniendiagramm (Canvas) ───────────────────────────────────────────────────
 
 @Composable
@@ -191,11 +223,13 @@ private fun BpLineChart(
     points:   List<ChartPoint>,
     modifier: Modifier = Modifier,
 ) {
-    val sysColor   = BpRed
-    val diaColor   = BpBlue
-    val pulseColor = BpAmber
-    val gridColor  = Color(0xFFDDDDDD)
-    val refColor   = BpRed.copy(alpha = 0.35f)  // Grenzlinie 140 mmHg
+    val sysColor      = BpRed
+    val diaColor      = BpBlue
+    val pulseColor    = BpAmber
+    val gridColor     = Color(0xFFDDDDDD)
+    val refColor      = BpRed.copy(alpha = 0.35f)
+    val sysRangeColor = BpRed.copy(alpha = 0.22f)
+    val diaRangeColor = BpBlue.copy(alpha = 0.18f)
 
     Canvas(modifier = modifier) {
         val leftPad   = 44.dp.toPx()
@@ -206,14 +240,15 @@ private fun BpLineChart(
         val cW = size.width  - leftPad - rightPad
         val cH = size.height - topPad  - bottomPad
 
-        // Y-Bereich dynamisch, mindestens 50..200
-        val allValues = points.flatMap { listOf(it.avgSys, it.avgDia, it.avgPulse) }
+        // Y-Bereich: alle Werte inkl. Min/Max
+        val allValues = points.flatMap {
+            listOf(it.minSys, it.maxSys, it.minDia, it.maxDia, it.avgPulse)
+        }
         val rawMin = (allValues.minOrNull() ?: 50f) - 10f
         val rawMax = (allValues.maxOrNull() ?: 200f) + 10f
         val yMin = (rawMin / 10).toInt() * 10f
         val yMax = ((rawMax / 10).toInt() + 1) * 10f
 
-        // X-Bereich: erster bis letzter Tag
         val xMinMs = points.first().dateMillis.toFloat()
         val xMaxMs = points.last().dateMillis.toFloat()
         val xRange = if (xMaxMs > xMinMs) xMaxMs - xMinMs else 1f
@@ -221,23 +256,21 @@ private fun BpLineChart(
         fun yPx(v: Float) = topPad + cH * (1f - (v - yMin) / (yMax - yMin))
         fun xPx(t: Long)  = leftPad + cW * ((t.toFloat() - xMinMs) / xRange)
 
-        // ── Horizontale Gitterlinien und Y-Labels ─────────────────────
+        // ── Gitterlinien + Y-Labels ───────────────────────────────────
         val textPaint = Paint().apply {
             textSize  = 9.sp.toPx()
             color     = android.graphics.Color.GRAY
             textAlign = Paint.Align.RIGHT
         }
-
         var yVal = yMin
         while (yVal <= yMax) {
             val yp = yPx(yVal)
             drawLine(gridColor, Offset(leftPad, yp), Offset(size.width - rightPad, yp), strokeWidth = 1.dp.toPx())
-            drawContext.canvas.nativeCanvas.drawText(
-                "${yVal.toInt()}", leftPad - 4.dp.toPx(), yp + 4.dp.toPx(), textPaint)
+            drawContext.canvas.nativeCanvas.drawText("${yVal.toInt()}", leftPad - 4.dp.toPx(), yp + 4.dp.toPx(), textPaint)
             yVal += 20f
         }
 
-        // ── Referenzlinien (140 = Hypertonie Grad 1; 120 = obere Normal-Grenze) ──
+        // ── Referenzlinie 140 mmHg ────────────────────────────────────
         val dash = PathEffect.dashPathEffect(floatArrayOf(8f, 4f))
         drawLine(
             color       = refColor,
@@ -247,26 +280,44 @@ private fun BpLineChart(
             pathEffect  = dash,
         )
 
-        // ── X-Achse mit Datumslabels ──────────────────────────────────
+        // ── X-Achse ───────────────────────────────────────────────────
         val labelFmt = SimpleDateFormat("dd.MM", Locale.getDefault())
         val xPaint = Paint().apply {
             textSize  = 9.sp.toPx()
             color     = android.graphics.Color.GRAY
             textAlign = Paint.Align.CENTER
         }
-        // Maximal 7 Labels
         val step = maxOf(1, points.size / 7)
         points.indices.filter { it % step == 0 || it == points.size - 1 }.forEach { i ->
             val p  = points[i]
             val xp = xPx(p.dateMillis)
             drawLine(gridColor, Offset(xp, yPx(yMax)), Offset(xp, topPad + cH + 4.dp.toPx()), strokeWidth = 1.dp.toPx())
-            drawContext.canvas.nativeCanvas.drawText(
-                labelFmt.format(Date(p.dateMillis)),
-                xp, size.height - 6.dp.toPx(), xPaint)
+            drawContext.canvas.nativeCanvas.drawText(labelFmt.format(Date(p.dateMillis)), xp, size.height - 6.dp.toPx(), xPaint)
         }
 
-        // ── Linien + Punkte für Sys, Dia, Puls ───────────────────
-        // Lokale Hilfsfunktion (anderer Name, damit drawLine aus DrawScope nicht überschattet wird)
+        // ── Range-Balken (Min–Max pro Tag, wenn mehrere Sitzungen) ────
+        val barWidth = 6.dp.toPx()
+        points.filter { it.count > 1 }.forEach { pt ->
+            val xp = xPx(pt.dateMillis)
+            // Sys-Bereich
+            drawLine(
+                color       = sysRangeColor,
+                start       = Offset(xp, yPx(pt.maxSys)),
+                end         = Offset(xp, yPx(pt.minSys)),
+                strokeWidth = barWidth,
+                cap         = StrokeCap.Round,
+            )
+            // Dia-Bereich
+            drawLine(
+                color       = diaRangeColor,
+                start       = Offset(xp, yPx(pt.maxDia)),
+                end         = Offset(xp, yPx(pt.minDia)),
+                strokeWidth = barWidth * 0.7f,
+                cap         = StrokeCap.Round,
+            )
+        }
+
+        // ── Linien + Punkte ───────────────────────────────────────────
         fun plotSeries(pts: List<ChartPoint>, getValue: (ChartPoint) -> Float, color: Color) {
             if (pts.size >= 2) {
                 val path = Path()
@@ -290,37 +341,99 @@ private fun BpLineChart(
 // ── Statistik-Kacheln ─────────────────────────────────────────────────────────
 
 @Composable
-private fun ChartStats(points: List<ChartPoint>) {
-    val avgSys   = points.map { it.avgSys }.average()
-    val avgDia   = points.map { it.avgDia }.average()
-    val avgPulse = points.map { it.avgPulse }.average()
-    val maxSys   = points.maxOf { it.avgSys }
-    val minSys   = points.minOf { it.avgSys }
+private fun ChartStats(sessions: List<MeasurementSession>) {
+    // Echte Min/Avg/Max aus allen Einzelsitzungen (nicht aus Tagesdurchschnitten!)
+    val allSys   = sessions.map { it.avgSys }
+    val allDia   = sessions.map { it.avgDia }
+    val allPulse = sessions.map { it.avgPulse }
 
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StatCard("⌀ Systolisch",   "${"%.0f".format(avgSys)} mmHg",  BpRed,   Modifier.weight(1f))
-        StatCard("⌀ Diastolisch",  "${"%.0f".format(avgDia)} mmHg",  BpBlue,  Modifier.weight(1f))
-        StatCard("⌀ Puls",         "${"%.0f".format(avgPulse)} /min", BpAmber, Modifier.weight(1f))
-    }
-    Spacer(Modifier.height(8.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        StatCard("Max Sys", "${"%.0f".format(maxSys)} mmHg", BpRed.copy(alpha = 0.7f), Modifier.weight(1f))
-        StatCard("Min Sys", "${"%.0f".format(minSys)} mmHg", BpGreen,                   Modifier.weight(1f))
-        Spacer(Modifier.weight(1f))
+    val minSys   = allSys.min()
+    val avgSys   = allSys.average().toFloat()
+    val maxSys   = allSys.max()
+
+    val minDia   = allDia.min()
+    val avgDia   = allDia.average().toFloat()
+    val maxDia   = allDia.max()
+
+    val avgPulse = allPulse.average().toFloat()
+    val minPulse = allPulse.min()
+    val maxPulse = allPulse.max()
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Sys-Zeile
+        StatRowCard(
+            label    = "Systolisch",
+            color    = BpRed,
+            minVal   = minSys,
+            avgVal   = avgSys,
+            maxVal   = maxSys,
+            unit     = "mmHg",
+        )
+        // Dia-Zeile
+        StatRowCard(
+            label    = "Diastolisch",
+            color    = BpBlue,
+            minVal   = minDia,
+            avgVal   = avgDia,
+            maxVal   = maxDia,
+            unit     = "mmHg",
+        )
+        // Puls-Zeile
+        StatRowCard(
+            label    = "Puls",
+            color    = BpAmber,
+            minVal   = minPulse,
+            avgVal   = avgPulse,
+            maxVal   = maxPulse,
+            unit     = "/min",
+        )
     }
 }
 
 @Composable
-private fun StatCard(label: String, value: String, color: Color, modifier: Modifier) {
-    Card(modifier = modifier, shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.08f))) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(label, style = MaterialTheme.typography.labelSmall,
-                color = color, fontWeight = FontWeight.SemiBold)
-            Text(value, style = MaterialTheme.typography.bodyMedium,
-                color = color, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+private fun StatRowCard(
+    label:  String,
+    color:  Color,
+    minVal: Float,
+    avgVal: Float,
+    maxVal: Float,
+    unit:   String,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape    = RoundedCornerShape(12.dp),
+        colors   = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.07f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Label
+            Text(
+                label,
+                modifier = Modifier.width(88.dp),
+                style    = MaterialTheme.typography.labelMedium,
+                color    = color,
+                fontWeight = FontWeight.SemiBold,
+            )
+            // Min / ⌀ / Max
+            listOf("Min" to minVal, "⌀" to avgVal, "Max" to maxVal).forEach { (tag, v) ->
+                Column(
+                    modifier            = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(tag,
+                        style  = MaterialTheme.typography.labelSmall,
+                        color  = color.copy(alpha = 0.7f))
+                    Text(
+                        "${"%.0f".format(v)} $unit",
+                        style      = MaterialTheme.typography.bodySmall,
+                        color      = color,
+                        fontWeight = FontWeight.Bold,
+                        fontSize   = 13.sp,
+                    )
+                }
+            }
         }
     }
 }
-
-

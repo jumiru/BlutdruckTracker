@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ fun HomeScreen(
     onStartMeasure: () -> Unit,
     onHistory: () -> Unit,
     onChart: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -38,14 +40,27 @@ fun HomeScreen(
         ) {
             Spacer(Modifier.height(8.dp))
 
-            // ── Titel ─────────────────────────────────────────────────────
-            Text(
-                "Blutdruck\nTracker",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold,
-                color = BpBlue,
-                lineHeight = 40.sp,
-            )
+            // ── Titel + Settings-Icon ──────────────────────────────────────
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    "Blutdruck\nTracker",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = BpBlue,
+                    lineHeight = 40.sp,
+                )
+                IconButton(onClick = onSettings) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "Einstellungen",
+                        tint = BpBlue,
+                    )
+                }
+            }
 
             // ── Letzter Messwert ─────────────────────────────────────────
             if (latestSession != null) {

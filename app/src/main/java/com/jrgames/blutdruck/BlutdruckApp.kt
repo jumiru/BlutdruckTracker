@@ -11,14 +11,16 @@ import com.jrgames.blutdruck.ui.screen.ChartScreen
 import com.jrgames.blutdruck.ui.screen.HistoryScreen
 import com.jrgames.blutdruck.ui.screen.HomeScreen
 import com.jrgames.blutdruck.ui.screen.MeasureScreen
+import com.jrgames.blutdruck.ui.screen.SettingsScreen
 import com.jrgames.blutdruck.ui.theme.BlutdruckTheme
 import com.jrgames.blutdruck.ui.viewmodel.BlutdruckViewModel
 
 private object Routes {
-    const val HOME    = "home"
-    const val MEASURE = "measure"
-    const val HISTORY = "history"
-    const val CHART   = "chart"
+    const val HOME     = "home"
+    const val MEASURE  = "measure"
+    const val HISTORY  = "history"
+    const val CHART    = "chart"
+    const val SETTINGS = "settings"
 }
 
 @Composable
@@ -43,6 +45,7 @@ fun BlutdruckApp(viewModel: BlutdruckViewModel) {
                     onStartMeasure = { navController.navigate(Routes.MEASURE) },
                     onHistory      = { navController.navigate(Routes.HISTORY) },
                     onChart        = { navController.navigate(Routes.CHART) },
+                    onSettings     = { navController.navigate(Routes.SETTINGS) },
                 )
             }
 
@@ -66,6 +69,19 @@ fun BlutdruckApp(viewModel: BlutdruckViewModel) {
                 ChartScreen(
                     sessions = uiState.sessions,
                     onBack   = { navController.popBackStack() },
+                )
+            }
+
+            composable(Routes.SETTINGS) {
+                SettingsScreen(
+                    config           = uiState.backupConfig,
+                    isBackingUp      = uiState.isBackingUp,
+                    lastBackupResult = uiState.lastBackupResult,
+                    sessionCount     = uiState.sessions.size,
+                    onSaveConfig     = viewModel::saveBackupConfig,
+                    onTriggerBackup  = viewModel::triggerBackup,
+                    onClearResult    = viewModel::clearBackupResult,
+                    onBack           = { navController.popBackStack() },
                 )
             }
         }

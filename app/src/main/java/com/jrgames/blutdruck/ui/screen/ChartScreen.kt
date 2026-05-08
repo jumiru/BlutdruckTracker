@@ -117,10 +117,12 @@ fun ChartScreen(
         viewYMin = viewYMin.coerceIn(absYMin, absYMax - yRange)
         viewYMax = viewYMin + yRange
 
-        // X: mind. 1 Tag, max. gesamter Datenbereich; immer innerhalb der Datengrenzen
+        // X: mind. 1 Tag; xEnd nie vor xStart
         val xRange = (xEndMs - xStartMs).coerceAtLeast(oneDayMs)
-        xStartMs  = xStartMs.coerceIn(dataXMin, dataXMax - xRange)
-        xEndMs    = xStartMs + xRange
+        // Sicherstellen, dass coerceIn keine vertauschten Grenzen bekommt
+        val xClampMax = (dataXMax - xRange).coerceAtLeast(dataXMin)
+        xStartMs = xStartMs.coerceIn(dataXMin, xClampMax)
+        xEndMs   = xStartMs + xRange
     }
 
     fun resetView() {

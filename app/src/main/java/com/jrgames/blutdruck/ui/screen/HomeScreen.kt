@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -29,6 +30,7 @@ fun HomeScreen(
     onStartMeasure: () -> Unit,
     onHistory: () -> Unit,
     onChart: () -> Unit,
+    onStats: () -> Unit,
     onSettings: () -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -114,6 +116,16 @@ fun HomeScreen(
                     Spacer(Modifier.width(6.dp))
                     Text("Diagramm")
                 }
+            }
+
+            OutlinedButton(
+                onClick = onStats,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Icon(Icons.Default.QueryStats, null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Statistiken & Verteilung")
             }
 
             Spacer(Modifier.height(8.dp))

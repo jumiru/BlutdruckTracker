@@ -12,6 +12,7 @@ import com.jrgames.blutdruck.ui.screen.HistoryScreen
 import com.jrgames.blutdruck.ui.screen.HomeScreen
 import com.jrgames.blutdruck.ui.screen.MeasureScreen
 import com.jrgames.blutdruck.ui.screen.SettingsScreen
+import com.jrgames.blutdruck.ui.screen.StatsScreen
 import com.jrgames.blutdruck.ui.theme.BlutdruckTheme
 import com.jrgames.blutdruck.ui.viewmodel.BlutdruckViewModel
 
@@ -20,6 +21,7 @@ private object Routes {
     const val MEASURE  = "measure"
     const val HISTORY  = "history"
     const val CHART    = "chart"
+    const val STATS    = "stats"
     const val SETTINGS = "settings"
 }
 
@@ -45,6 +47,7 @@ fun BlutdruckApp(viewModel: BlutdruckViewModel) {
                     onStartMeasure = { navController.navigate(Routes.MEASURE) },
                     onHistory      = { navController.navigate(Routes.HISTORY) },
                     onChart        = { navController.navigate(Routes.CHART) },
+                    onStats        = { navController.navigate(Routes.STATS) },
                     onSettings     = { navController.navigate(Routes.SETTINGS) },
                 )
             }
@@ -67,6 +70,13 @@ fun BlutdruckApp(viewModel: BlutdruckViewModel) {
 
             composable(Routes.CHART) {
                 ChartScreen(
+                    sessions = uiState.sessions,
+                    onBack   = { navController.popBackStack() },
+                )
+            }
+
+            composable(Routes.STATS) {
+                StatsScreen(
                     sessions = uiState.sessions,
                     onBack   = { navController.popBackStack() },
                 )

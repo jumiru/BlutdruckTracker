@@ -93,33 +93,12 @@ fun ChartScreen(
     }
     val oneDayMs = 24 * 60 * 60 * 1000L
 
-    val autoYMin = remember(allPoints) {
-        val v = allPoints.flatMap { listOf(it.minSys, it.maxSys, it.minDia, it.maxDia, it.avgPulse) }
-        ((v.minOrNull() ?: 50f) - 10f).let { (it / 10).toInt() * 10f }
-    }
-    val autoYMax = remember(allPoints) {
-        val v = allPoints.flatMap { listOf(it.minSys, it.maxSys, it.minDia, it.maxDia, it.avgPulse) }
-        ((v.maxOrNull() ?: 200f) + 10f).let { ((it / 10).toInt() + 1) * 10f }
-    }
-
     var xStartMs by remember { mutableLongStateOf(nowMs - thirtyDaysMs) }
     var xEndMs   by remember { mutableLongStateOf(nowMs) }
-    var viewYMin by remember { mutableFloatStateOf(autoYMin) }
-    var viewYMax by remember { mutableFloatStateOf(autoYMax) }
-
-    // Y: 20–280 mmHg absolutes Limit
-    val absYMin = 20f
-    val absYMax = 280f
 
     fun clampViewport() {
-        // Y: Bereich einhalten, mind. 20 Einheiten sichtbar
-        val yRange = (viewYMax - viewYMin).coerceIn(20f, absYMax - absYMin)
-        viewYMin = viewYMin.coerceIn(absYMin, absYMax - yRange)
-        viewYMax = viewYMin + yRange
-
-        // X: mind. 1 Tag; xEnd nie vor xStart
-        val xRange = (xEndMs - xStartMs).coerceAtLeast(oneDayMs)
-        // Sicherstellen, dass coerceIn keine vertauschten Grenzen bekommt
+        // X: mind. 1 Tag; immer innerhalb der Datengrenzen
+        val xRange    = (xEndMs - xStartMs).coerceAtLeast(oneDayMs)
         val xClampMax = (dataXMax - xRange).coerceAtLeast(dataXMin)
         xStartMs = xStartMs.coerceIn(dataXMin, xClampMax)
         xEndMs   = xStartMs + xRange
@@ -128,8 +107,6 @@ fun ChartScreen(
     fun resetView() {
         xStartMs = nowMs - thirtyDaysMs
         xEndMs   = nowMs
-        viewYMin = autoYMin
-        viewYMax = autoYMax
     }
 
     val visiblePoints = remember(allPoints, xStartMs, xEndMs) {
@@ -222,25 +199,18 @@ fun ChartScreen(
                                         val pressed = event.changes.filter { it.pressed }
                                         if (pressed.isEmpty()) break
 
-                                        val cW = chartSize.width  - (leftPadDp + rightPadDp + innerPadDp * 2).dp.toPx()
-                                        val cH = chartSize.height - (topPadDp  + bottomPadDp + innerPadDp * 2).dp.toPx()
-                                        if (cW <= 0f || cH <= 0f) { prev1 = null; prev2 = null; break }
+                                        val cW = chartSize.width - (leftPadDp + rightPadDp + innerPadDp * 2).dp.toPx()
+                                        if (cW <= 0f) { prev1 = null; prev2 = null; break }
 
-                                        val xRange   = (xEndMs - xStartMs).toFloat()
-                                        val yRange   = viewYMax - viewYMin
-                                        val msPerPx  = xRange / cW
-                                        val valPerPx = yRange / cH
+                                        val xRange  = (xEndMs - xStartMs).toFloat()
+                                        val msPerPx = xRange / cW
 
                                         if (pressed.size == 1) {
                                             val cur = pressed[0].position
                                             val p   = prev1
                                             if (p != null) {
-                                                val dxMs = (-(cur.x - p.x) * msPerPx).toLong()
-                                                val dyVal = (cur.y - p.y) * valPerPx
-                                                xStartMs += dxMs
-                                                xEndMs   += dxMs
-                                                viewYMin += dyVal
-                                                viewYMax += dyVal
+                                                xStartMs += (-(cur.x - p.x) * msPerPx).toLong()
+                                                xEndMs   += (-(cur.x - p.x) * msPerPx).toLong()
                                                 clampViewport()
                                             }
                                             prev1 = cur
@@ -254,34 +224,21 @@ fun ChartScreen(
 
                                             if (p1 != null && p2 != null) {
                                                 val prevDx = abs(p2.x - p1.x).coerceAtLeast(1f)
-                                                val prevDy = abs(p2.y - p1.y).coerceAtLeast(1f)
                                                 val curDx  = abs(cur2.x - cur1.x).coerceAtLeast(1f)
-                                                val curDy  = abs(cur2.y - cur1.y).coerceAtLeast(1f)
+                                                // Zoom nur wenn Finger weit genug auseinander
+                                                val rawZoom = if (prevDx > 30f && curDx > 30f) prevDx / curDx else 1f
+                                                val zoom    = (1f + (rawZoom - 1f) * 0.3f).coerceIn(0.95f, 1.05f)
 
-                                                // Zoom nur berechnen wenn Finger weit genug auseinander
-                                                // und Änderung klein genug – verhindert Sprünge
-                                                val rawZoomX = if (prevDx > 30f && curDx > 30f) prevDx / curDx else 1f
-                                                val rawZoomY = if (prevDy > 30f && curDy > 30f) prevDy / curDy else 1f
-                                                val zoomX = (1f + (rawZoomX - 1f) * 0.3f).coerceIn(0.95f, 1.05f)
-                                                val zoomY = (1f + (rawZoomY - 1f) * 0.3f).coerceIn(0.95f, 1.05f)
+                                                // Pinch-Zentrum in ms
+                                                val cxPx  = (p1.x + p2.x) / 2f - (leftPadDp + innerPadDp).dp.toPx()
+                                                val cxMs  = xStartMs + (cxPx * msPerPx).toLong()
 
-                                                // Pinch-Zentrum in Datenwerten
-                                                val cxPx   = (p1.x + p2.x) / 2f - (leftPadDp + innerPadDp).dp.toPx()
-                                                val cyPx   = (p1.y + p2.y) / 2f - (topPadDp  + innerPadDp).dp.toPx()
-                                                val cxMs   = xStartMs + (cxPx * msPerPx).toLong()
-                                                val cyVal  = viewYMax  - cyPx * valPerPx
-
-                                                val newXRange = (xRange * zoomX).coerceAtLeast(1000L * 60 * 60 * 24 * 1f)
-                                                val newYRange = (yRange * zoomY).coerceAtLeast(20f)
-
-                                                // Pan der Mittelpunkte
-                                                val midDxMs  = (-((cur1.x + cur2.x) / 2f - (p1.x + p2.x) / 2f) * msPerPx).toLong()
-                                                val midDyVal = ((cur1.y + cur2.y) / 2f - (p1.y + p2.y) / 2f) * valPerPx
+                                                val newXRange = (xRange * zoom).coerceAtLeast(oneDayMs.toFloat())
+                                                // Pan-Anteil der Mittelpunkte
+                                                val midDxMs = (-((cur1.x + cur2.x) / 2f - (p1.x + p2.x) / 2f) * msPerPx).toLong()
 
                                                 xStartMs = cxMs - (newXRange / 2).toLong() + midDxMs
                                                 xEndMs   = cxMs + (newXRange / 2).toLong() + midDxMs
-                                                viewYMin = cyVal - newYRange / 2 + midDyVal
-                                                viewYMax = cyVal + newYRange / 2 + midDyVal
                                                 clampViewport()
                                             }
                                             prev1 = cur1
@@ -296,8 +253,6 @@ fun ChartScreen(
                             points   = allPoints,
                             xStartMs = xStartMs,
                             xEndMs   = xEndMs,
-                            yMin     = viewYMin,
-                            yMax     = viewYMax,
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -348,8 +303,6 @@ private fun BpLineChart(
     points:   List<ChartPoint>,
     xStartMs: Long,
     xEndMs:   Long,
-    yMin:     Float,
-    yMax:     Float,
     modifier: Modifier = Modifier,
 ) {
     val sysColor      = BpRed
@@ -368,6 +321,18 @@ private fun BpLineChart(
         else points.subList((first - 1).coerceAtLeast(0), (last + 2).coerceAtMost(points.size))
     }
 
+    // Y-Bereich automatisch aus sichtbaren Punkten (Fallback: alle Punkte)
+    val displayPoints = if (visible.isNotEmpty()) visible else points
+    val yMin: Float
+    val yMax: Float
+    if (displayPoints.isEmpty()) {
+        yMin = 50f; yMax = 200f
+    } else {
+        val allVals = displayPoints.flatMap { listOf(it.minSys, it.maxSys, it.minDia, it.maxDia, it.avgPulse) }
+        yMin = ((allVals.min() - 10f) / 10).toInt() * 10f
+        yMax = (((allVals.max() + 10f) / 10).toInt() + 1) * 10f
+    }
+
     Canvas(modifier = modifier) {
         val leftPad   = 44.dp.toPx()
         val rightPad  = 10.dp.toPx()
@@ -376,7 +341,7 @@ private fun BpLineChart(
         val cW = size.width  - leftPad - rightPad
         val cH = size.height - topPad  - bottomPad
 
-        val safeYMin = if (yMax > yMin) yMin else yMin - 1f
+        val safeYMin = yMin
         val safeYMax = if (yMax > yMin) yMax else yMin + 1f
         val xRange   = if (xEndMs > xStartMs) (xEndMs - xStartMs).toFloat() else 1f
 

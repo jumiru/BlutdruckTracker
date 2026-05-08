@@ -228,8 +228,11 @@ fun ChartScreen(
                                                 val prevDy = abs(p2.y - p1.y).coerceAtLeast(1f)
                                                 val curDx  = abs(cur2.x - cur1.x).coerceAtLeast(1f)
                                                 val curDy  = abs(cur2.y - cur1.y).coerceAtLeast(1f)
-                                                val zoomX  = (prevDx / curDx).coerceIn(0.7f, 1.43f)
-                                                val zoomY  = (prevDy / curDy).coerceIn(0.7f, 1.43f)
+                                                // Gedämpfter Zoom: Faktor näher an 1.0 heranziehen
+                                                val rawZoomX = prevDx / curDx
+                                                val rawZoomY = prevDy / curDy
+                                                val zoomX = (1f + (rawZoomX - 1f) * 0.25f).coerceIn(0.93f, 1.07f)
+                                                val zoomY = (1f + (rawZoomY - 1f) * 0.25f).coerceIn(0.93f, 1.07f)
 
                                                 // Pinch-Zentrum in Datenwerten
                                                 val cxPx   = (p1.x + p2.x) / 2f - (leftPadDp + innerPadDp).dp.toPx()

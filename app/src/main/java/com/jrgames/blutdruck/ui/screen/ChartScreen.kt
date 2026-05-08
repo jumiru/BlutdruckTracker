@@ -98,6 +98,19 @@ fun ChartScreen(
     var viewYMin by remember { mutableFloatStateOf(autoYMin) }
     var viewYMax by remember { mutableFloatStateOf(autoYMax) }
 
+    // Harter Wertebereich für Y-Achse
+    val absYMin = 20f
+    val absYMax = 280f
+
+    fun clampViewport() {
+        // Y-Bereich darf nicht kleiner als 20 und nicht größer als absYMin..absYMax werden
+        val yRange = (viewYMax - viewYMin).coerceAtLeast(20f)
+        viewYMin = viewYMin.coerceAtLeast(absYMin)
+        viewYMax = (viewYMin + yRange).coerceAtMost(absYMax)
+        if (viewYMax - viewYMin < 20f) viewYMin = viewYMax - 20f
+        viewYMin = viewYMin.coerceAtLeast(absYMin)
+    }
+
     fun resetView() {
         xStartMs = nowMs - thirtyDaysMs
         xEndMs   = nowMs
@@ -212,6 +225,7 @@ fun ChartScreen(
                                                 xEndMs   += dxMs
                                                 viewYMin += dyVal
                                                 viewYMax += dyVal
+                                                clampViewport()
                                             }
                                             prev1 = cur
                                             prev2 = null
@@ -251,6 +265,7 @@ fun ChartScreen(
                                                 xEndMs   = cxMs + (newXRange / 2).toLong() + midDxMs
                                                 viewYMin = cyVal - newYRange / 2 + midDyVal
                                                 viewYMax = cyVal + newYRange / 2 + midDyVal
+                                                clampViewport()
                                             }
                                             prev1 = cur1
                                             prev2 = cur2

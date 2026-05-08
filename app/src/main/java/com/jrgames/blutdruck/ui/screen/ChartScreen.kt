@@ -84,6 +84,15 @@ fun ChartScreen(
 
     val allPoints = remember(sessions) { buildChartPoints(sessions) }
 
+    // X-Datengrenzen (mind. 1 Tag Breite)
+    val dataXMin = remember(allPoints) {
+        allPoints.firstOrNull()?.dateMillis ?: (nowMs - thirtyDaysMs)
+    }
+    val dataXMax = remember(allPoints) {
+        (allPoints.lastOrNull()?.dateMillis ?: nowMs) + 24 * 60 * 60 * 1000L
+    }
+    val oneDayMs = 24 * 60 * 60 * 1000L
+
     val autoYMin = remember(allPoints) {
         val v = allPoints.flatMap { listOf(it.minSys, it.maxSys, it.minDia, it.maxDia, it.avgPulse) }
         ((v.minOrNull() ?: 50f) - 10f).let { (it / 10).toInt() * 10f }
@@ -98,17 +107,20 @@ fun ChartScreen(
     var viewYMin by remember { mutableFloatStateOf(autoYMin) }
     var viewYMax by remember { mutableFloatStateOf(autoYMax) }
 
-    // Harter Wertebereich für Y-Achse
+    // Y: 20–280 mmHg absolutes Limit
     val absYMin = 20f
     val absYMax = 280f
 
     fun clampViewport() {
-        // Y-Bereich darf nicht kleiner als 20 und nicht größer als absYMin..absYMax werden
-        val yRange = (viewYMax - viewYMin).coerceAtLeast(20f)
-        viewYMin = viewYMin.coerceAtLeast(absYMin)
-        viewYMax = (viewYMin + yRange).coerceAtMost(absYMax)
-        if (viewYMax - viewYMin < 20f) viewYMin = viewYMax - 20f
-        viewYMin = viewYMin.coerceAtLeast(absYMin)
+        // Y: Bereich einhalten, mind. 20 Einheiten sichtbar
+        val yRange = (viewYMax - viewYMin).coerceIn(20f, absYMax - absYMin)
+        viewYMin = viewYMin.coerceIn(absYMin, absYMax - yRange)
+        viewYMax = viewYMin + yRange
+
+        // X: mind. 1 Tag, max. gesamter Datenbereich; immer innerhalb der Datengrenzen
+        val xRange = (xEndMs - xStartMs).coerceAtLeast(oneDayMs)
+        xStartMs  = xStartMs.coerceIn(dataXMin, dataXMax - xRange)
+        xEndMs    = xStartMs + xRange
     }
 
     fun resetView() {
@@ -124,6 +136,8 @@ fun ChartScreen(
     val filteredSessions = remember(sessions, xStartMs, xEndMs) {
         sessions.filter { it.timestampMillis in xStartMs..xEndMs }
     }
+    // Für Statistik immer sichtbare Sessions nutzen, Fallback auf alle
+    val statSessions = if (filteredSessions.isNotEmpty()) filteredSessions else sessions
 
     var chartSize by remember { mutableStateOf(IntSize.Zero) }
 
@@ -237,16 +251,17 @@ fun ChartScreen(
                                             val p2   = prev2
 
                                             if (p1 != null && p2 != null) {
-                                                // Separater H- und V-Zoom
                                                 val prevDx = abs(p2.x - p1.x).coerceAtLeast(1f)
                                                 val prevDy = abs(p2.y - p1.y).coerceAtLeast(1f)
                                                 val curDx  = abs(cur2.x - cur1.x).coerceAtLeast(1f)
                                                 val curDy  = abs(cur2.y - cur1.y).coerceAtLeast(1f)
-                                                // Gedämpfter Zoom: Faktor näher an 1.0 heranziehen
-                                                val rawZoomX = prevDx / curDx
-                                                val rawZoomY = prevDy / curDy
-                                                val zoomX = (1f + (rawZoomX - 1f) * 0.25f).coerceIn(0.93f, 1.07f)
-                                                val zoomY = (1f + (rawZoomY - 1f) * 0.25f).coerceIn(0.93f, 1.07f)
+
+                                                // Zoom nur berechnen wenn Finger weit genug auseinander
+                                                // und Änderung klein genug – verhindert Sprünge
+                                                val rawZoomX = if (prevDx > 30f && curDx > 30f) prevDx / curDx else 1f
+                                                val rawZoomY = if (prevDy > 30f && curDy > 30f) prevDy / curDy else 1f
+                                                val zoomX = (1f + (rawZoomX - 1f) * 0.3f).coerceIn(0.95f, 1.05f)
+                                                val zoomY = (1f + (rawZoomY - 1f) * 0.3f).coerceIn(0.95f, 1.05f)
 
                                                 // Pinch-Zentrum in Datenwerten
                                                 val cxPx   = (p1.x + p2.x) / 2f - (leftPadDp + innerPadDp).dp.toPx()
@@ -288,9 +303,7 @@ fun ChartScreen(
 
                 Spacer(Modifier.height(16.dp))
 
-                if (filteredSessions.isNotEmpty()) {
-                    ChartStats(filteredSessions)
-                }
+                ChartStats(statSessions)
             }
 
             Spacer(Modifier.height(16.dp))

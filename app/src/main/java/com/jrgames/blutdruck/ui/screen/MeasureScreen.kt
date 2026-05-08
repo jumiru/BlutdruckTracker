@@ -410,12 +410,7 @@ private fun SummaryStep(
                 ReadingHeader()
                 HorizontalDivider()
                 readings.forEachIndexed { i, r ->
-                    val inEval = when (readings.size) {
-                        1    -> true
-                        2    -> true
-                        else -> i > 0
-                    }
-                    ReadingRow(index = i + 1, r = r, isHighlighted = inEval)
+                    ReadingRow(index = i + 1, r = r, isHighlighted = true)
                 }
             }
         }

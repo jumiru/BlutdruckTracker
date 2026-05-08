@@ -93,8 +93,16 @@ fun ChartScreen(
     }
     val oneDayMs = 24 * 60 * 60 * 1000L
 
-    var xStartMs by remember { mutableLongStateOf(nowMs - thirtyDaysMs) }
-    var xEndMs   by remember { mutableLongStateOf(nowMs) }
+    // If data spans less than 30 days, show the full data range; otherwise last 30 days
+    val defaultXStart = remember(allPoints) {
+        if (dataXMax - dataXMin < thirtyDaysMs) dataXMin else nowMs - thirtyDaysMs
+    }
+    val defaultXEnd = remember(allPoints) {
+        if (dataXMax - dataXMin < thirtyDaysMs) dataXMax else nowMs
+    }
+
+    var xStartMs by remember { mutableLongStateOf(defaultXStart) }
+    var xEndMs   by remember { mutableLongStateOf(defaultXEnd) }
 
     fun clampViewport() {
         // X: mind. 1 Tag; immer innerhalb der Datengrenzen
@@ -105,8 +113,8 @@ fun ChartScreen(
     }
 
     fun resetView() {
-        xStartMs = nowMs - thirtyDaysMs
-        xEndMs   = nowMs
+        xStartMs = defaultXStart
+        xEndMs   = defaultXEnd
     }
 
     val visiblePoints = remember(allPoints, xStartMs, xEndMs) {

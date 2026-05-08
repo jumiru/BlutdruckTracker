@@ -227,7 +227,7 @@ fun ChartScreen(
                                                 val curDx  = abs(cur2.x - cur1.x).coerceAtLeast(1f)
                                                 // Zoom nur wenn Finger weit genug auseinander
                                                 val rawZoom = if (prevDx > 30f && curDx > 30f) prevDx / curDx else 1f
-                                                val zoom    = (1f + (rawZoom - 1f) * 0.3f).coerceIn(0.95f, 1.05f)
+                                                val zoom    = (1f + (rawZoom - 1f) * 0.6f).coerceIn(0.88f, 1.12f)
 
                                                 // Pinch-Zentrum in ms
                                                 val cxPx  = (p1.x + p2.x) / 2f - (leftPadDp + innerPadDp).dp.toPx()

@@ -44,6 +44,7 @@ fun BlutdruckApp(viewModel: BlutdruckViewModel) {
             composable(Routes.HOME) {
                 HomeScreen(
                     latestSession  = uiState.latestSession,
+                    sessions       = uiState.sessions,
                     onStartMeasure = { navController.navigate(Routes.MEASURE) },
                     onHistory      = { navController.navigate(Routes.HISTORY) },
                     onChart        = { navController.navigate(Routes.CHART) },

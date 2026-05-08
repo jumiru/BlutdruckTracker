@@ -93,7 +93,7 @@ fun HistoryScreen(
     onDelete: (Long) -> Unit,
     onBack: () -> Unit,
 ) {
-    var period    by remember { mutableStateOf(HistoryPeriod.WEEK) }
+    var period    by remember { mutableStateOf(HistoryPeriod.ALL) }
     var offset    by remember { mutableIntStateOf(0) }
     var tableMode by remember { mutableStateOf(false) }
     LaunchedEffect(period) { offset = 0 }

@@ -27,6 +27,7 @@ import java.util.Locale
 @Composable
 fun HomeScreen(
     latestSession: MeasurementSession?,
+    sessions: List<MeasurementSession> = emptyList(),
     onStartMeasure: () -> Unit,
     onHistory: () -> Unit,
     onChart: () -> Unit,
@@ -78,6 +79,11 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+            }
+
+            // ── Gesamtdurchschnitt ────────────────────────────────────────
+            if (sessions.size >= 2) {
+                AveragesCard(sessions)
             }
 
             Spacer(Modifier.weight(1f))
@@ -134,8 +140,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun LatestCard(session: MeasurementSession) {
-    val cat      = BpClassifier.classify(session.avgSys, session.avgDia)
+private fun LatestCard(session: MeasurementSession) {    val cat      = BpClassifier.classify(session.avgSys, session.avgDia)
     val cardCol  = BpClassifier.cardColor(cat)
     val textCol  = BpClassifier.textColor(cat)
     val dateFmt  = SimpleDateFormat("dd.MM.yyyy  HH:mm", Locale.getDefault())
@@ -197,3 +202,52 @@ private fun LatestCard(session: MeasurementSession) {
     }
 }
 
+@Composable
+private fun AveragesCard(sessions: List<MeasurementSession>) {
+    val avgSys   = sessions.map { it.avgSys }.average()
+    val avgDia   = sessions.map { it.avgDia }.average()
+    val avgPulse = sessions.map { it.avgPulse }.average()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape    = RoundedCornerShape(16.dp),
+        colors   = CardDefaults.cardColors(containerColor = BpBlue.copy(alpha = 0.06f)),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Durchschnitt aller Messungen",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = BpBlue.copy(alpha = 0.8f),
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "${sessions.size} Messungen",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = BpBlue.copy(alpha = 0.55f),
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                AvgItem(label = "Sys",  value = "%.0f".format(avgSys),   unit = "mmHg")
+                AvgItem(label = "Dia",  value = "%.0f".format(avgDia),   unit = "mmHg")
+                AvgItem(label = "Puls", value = "%.0f".format(avgPulse), unit = "/min")
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvgItem(label: String, value: String, unit: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = BpBlue.copy(alpha = 0.6f))
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = BpBlue)
+        Text(unit,  style = MaterialTheme.typography.labelSmall, color = BpBlue.copy(alpha = 0.5f))
+    }
+}

@@ -24,15 +24,16 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jrgames.blutdruck.data.local.MeasurementSession
-import com.jrgames.blutdruck.ui.theme.BpBlue
-import com.jrgames.blutdruck.ui.theme.BpRed
 import com.jrgames.blutdruck.ui.theme.BpAmber
+import com.jrgames.blutdruck.ui.theme.BpBlue
 import com.jrgames.blutdruck.ui.theme.BpGreen
+import com.jrgames.blutdruck.ui.theme.BpRed
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -126,7 +127,8 @@ fun ChartScreen(
     // Für Statistik immer sichtbare Sessions nutzen, Fallback auf alle
     val statSessions = if (filteredSessions.isNotEmpty()) filteredSessions else sessions
 
-    var chartSize by remember { mutableStateOf(IntSize.Zero) }
+    var chartSize    by remember { mutableStateOf(IntSize.Zero) }
+    var selectedPoint by remember(allPoints) { mutableStateOf<ChartPoint?>(null) }
 
     // Padding-Konstanten (dp) – müssen mit Canvas-Padding übereinstimmen
     val leftPadDp   = 44
@@ -197,7 +199,9 @@ fun ChartScreen(
                             .onSizeChanged { chartSize = it }
                             .pointerInput(Unit) {
                                 awaitEachGesture {
-                                    awaitFirstDown(requireUnconsumed = false)
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val downPos = down.position
+                                    var totalMov = 0f
 
                                     var prev1: Offset? = null
                                     var prev2: Offset? = null
@@ -215,8 +219,9 @@ fun ChartScreen(
 
                                         if (pressed.size == 1) {
                                             val cur = pressed[0].position
+                                            totalMov += (cur - (prev1 ?: downPos)).getDistance()
                                             val p   = prev1
-                                            if (p != null) {
+                                            if (p != null && totalMov > 15f) {
                                                 xStartMs += (-(cur.x - p.x) * msPerPx).toLong()
                                                 xEndMs   += (-(cur.x - p.x) * msPerPx).toLong()
                                                 clampViewport()
@@ -225,6 +230,7 @@ fun ChartScreen(
                                             prev2 = null
                                             pressed[0].consume()
                                         } else if (pressed.size >= 2) {
+                                            totalMov = Float.MAX_VALUE  // kein Tap bei Pinch
                                             val cur1 = pressed[0].position
                                             val cur2 = pressed[1].position
                                             val p1   = prev1
@@ -233,16 +239,13 @@ fun ChartScreen(
                                             if (p1 != null && p2 != null) {
                                                 val prevDx = abs(p2.x - p1.x).coerceAtLeast(1f)
                                                 val curDx  = abs(cur2.x - cur1.x).coerceAtLeast(1f)
-                                                // Zoom nur wenn Finger weit genug auseinander
                                                 val rawZoom = if (prevDx > 30f && curDx > 30f) prevDx / curDx else 1f
                                                 val zoom    = (1f + (rawZoom - 1f) * 0.6f).coerceIn(0.88f, 1.12f)
 
-                                                // Pinch-Zentrum in ms
                                                 val cxPx  = (p1.x + p2.x) / 2f - (leftPadDp + innerPadDp).dp.toPx()
                                                 val cxMs  = xStartMs + (cxPx * msPerPx).toLong()
 
                                                 val newXRange = (xRange * zoom).coerceAtLeast(oneDayMs.toFloat())
-                                                // Pan-Anteil der Mittelpunkte
                                                 val midDxMs = (-((cur1.x + cur2.x) / 2f - (p1.x + p2.x) / 2f) * msPerPx).toLong()
 
                                                 xStartMs = cxMs - (newXRange / 2).toLong() + midDxMs
@@ -254,15 +257,81 @@ fun ChartScreen(
                                             pressed.forEach { it.consume() }
                                         }
                                     } while (true)
+
+                                    // Tap-Erkennung: wenig Bewegung → nächsten Punkt suchen
+                                    if (totalMov < 15f) {
+                                        val lp = (leftPadDp + innerPadDp).dp.toPx()
+                                        val cW = chartSize.width - (leftPadDp + rightPadDp + innerPadDp * 2).dp.toPx()
+                                        if (cW > 0f) {
+                                            val fracX   = ((downPos.x - lp) / cW).coerceIn(0f, 1f)
+                                            val tappedMs = xStartMs + (fracX * (xEndMs - xStartMs)).toLong()
+                                            val nearest  = allPoints.minByOrNull { abs(it.dateMillis - tappedMs) }
+                                            selectedPoint = if (nearest == selectedPoint) null else nearest
+                                        }
+                                    }
                                 }
                             },
                     ) {
                         BpLineChart(
-                            points   = allPoints,
-                            xStartMs = xStartMs,
-                            xEndMs   = xEndMs,
-                            modifier = Modifier.fillMaxSize(),
+                            points        = allPoints,
+                            xStartMs      = xStartMs,
+                            xEndMs        = xEndMs,
+                            selectedPoint = selectedPoint,
+                            modifier      = Modifier.fillMaxSize(),
                         )
+
+                        // ── Tooltip-Overlay ───────────────────────────────
+                        selectedPoint?.let { pt ->
+                            val density = LocalDensity.current
+                            val cW = with(density) {
+                                (chartSize.width - (leftPadDp + rightPadDp + innerPadDp * 2).dp.toPx())
+                            }
+                            val lp = with(density) { (leftPadDp + innerPadDp).dp.toPx() }
+                            val fracX = if (xEndMs > xStartMs)
+                                ((pt.dateMillis - xStartMs).toFloat() / (xEndMs - xStartMs)).coerceIn(0f, 1f)
+                            else 0f
+                            val pointXPx = lp + cW * fracX
+                            val pointXDp = with(density) { pointXPx.toDp() }
+                            val tooltipWidthDp = 160.dp
+                            val tooltipXDp = (pointXDp - tooltipWidthDp / 2)
+                                .coerceIn(0.dp, with(density) { chartSize.width.toDp() } - tooltipWidthDp)
+
+                            val dateFmt = remember { SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()) }
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = tooltipXDp, y = 4.dp)
+                                    .width(tooltipWidthDp),
+                            ) {
+                                Card(
+                                    shape  = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surface,
+                                    ),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                                    ) {
+                                        Text(
+                                            dateFmt.format(Date(pt.dateMillis)),
+                                            style      = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color      = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        TooltipRow("Sys",  "${pt.avgSys.toInt()} mmHg",  BpRed)
+                                        TooltipRow("Dia",  "${pt.avgDia.toInt()} mmHg",  BpBlue)
+                                        TooltipRow("Puls", "${pt.avgPulse.toInt()} /min", BpAmber)
+                                        if (pt.count > 1)
+                                            Text(
+                                                "${pt.count} Messungen",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -304,14 +373,30 @@ private fun LegendRangeItem(color: Color, label: String) {
     }
 }
 
+// ── Tooltip-Zeile ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun TooltipRow(label: String, value: String, color: Color) {
+    Row(
+        verticalAlignment    = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier             = Modifier.fillMaxWidth(),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.width(28.dp))
+        Text(value, style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+    }
+}
+
 // ── Liniendiagramm (Canvas) mit Viewport ─────────────────────────────────────
 
 @Composable
 private fun BpLineChart(
-    points:   List<ChartPoint>,
-    xStartMs: Long,
-    xEndMs:   Long,
-    modifier: Modifier = Modifier,
+    points:        List<ChartPoint>,
+    xStartMs:      Long,
+    xEndMs:        Long,
+    selectedPoint: ChartPoint? = null,
+    modifier:      Modifier = Modifier,
 ) {
     val sysColor      = BpRed
     val diaColor      = BpBlue
@@ -432,6 +517,26 @@ private fun BpLineChart(
         plotSeries(visible, { it.avgSys   }, sysColor)
         plotSeries(visible, { it.avgDia   }, diaColor)
         plotSeries(visible, { it.avgPulse }, pulseColor)
+
+        // Ausgewählten Punkt hervorheben
+        selectedPoint?.let { pt ->
+            val xp = xPx(pt.dateMillis)
+            if (xp in (leftPad - 12.dp.toPx())..(leftPad + cW + 12.dp.toPx())) {
+                listOf(
+                    pt.avgSys   to sysColor,
+                    pt.avgDia   to diaColor,
+                    pt.avgPulse to pulseColor,
+                ).forEach { (v, col) ->
+                    val yp = yPx(v)
+                    drawCircle(col.copy(alpha = 0.25f), 10.dp.toPx(), Offset(xp, yp))
+                    drawCircle(col, 5.dp.toPx(), Offset(xp, yp))
+                    drawCircle(Color.White, 2.5.dp.toPx(), Offset(xp, yp))
+                }
+                // Senkrechte Linie
+                drawLine(Color(0x66000000), Offset(xp, topPad), Offset(xp, topPad + cH), strokeWidth = 1.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 3f)))
+            }
+        }
     }
 }
 

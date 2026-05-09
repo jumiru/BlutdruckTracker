@@ -321,16 +321,30 @@ private fun GaussianChart(distributions: List<Distribution>, modifier: Modifier)
             drawPath(linePath, lineColor, style = Stroke(width = 2.dp.toPx()))
 
             // Mittellinie
+            val peakY = yPx(gaussianPdf(dist.mean, dist.mean, dist.stdDev))
             drawLine(lineColor.copy(alpha = 0.6f),
                 Offset(xPx(dist.mean), tp + cH),
-                Offset(xPx(dist.mean), yPx(gaussianPdf(dist.mean, dist.mean, dist.stdDev))),
+                Offset(xPx(dist.mean), peakY),
                 strokeWidth = 1.5.dp.toPx())
 
-            // μ-Label
-            val lbl = Paint().apply { textSize = 9.sp.toPx(); color = lineColor.copy(alpha = 0.9f).toArgb(); textAlign = Paint.Align.CENTER }
-            drawContext.canvas.nativeCanvas.drawText(
-                "μ=${dist.mean.toInt()} n=${dist.n}",
-                xPx(dist.mean), tp + cH - 4.dp.toPx(), lbl)
+            // μ-Label an der Kurvenspitze mit Hintergrund
+            val lblText = "μ=${dist.mean.toInt()}  n=${dist.n}"
+            val lbl = Paint().apply {
+                textSize  = 10.sp.toPx()
+                color     = lineColor.toArgb()
+                textAlign = Paint.Align.CENTER
+                isFakeBoldText = true
+            }
+            val textW  = lbl.measureText(lblText)
+            val textH  = lbl.textSize
+            val lblX   = xPx(dist.mean).coerceIn(lp + textW / 2 + 4.dp.toPx(), lp + cW - textW / 2 - 4.dp.toPx())
+            val lblY   = (peakY - 6.dp.toPx()).coerceAtLeast(tp + textH)
+            val bgPaint = Paint().apply { color = android.graphics.Color.argb(210, 255, 255, 255) }
+            drawContext.canvas.nativeCanvas.drawRoundRect(
+                android.graphics.RectF(lblX - textW / 2 - 4.dp.toPx(), lblY - textH,
+                    lblX + textW / 2 + 4.dp.toPx(), lblY + 3.dp.toPx()),
+                4.dp.toPx(), 4.dp.toPx(), bgPaint)
+            drawContext.canvas.nativeCanvas.drawText(lblText, lblX, lblY, lbl)
         }
     }
 }

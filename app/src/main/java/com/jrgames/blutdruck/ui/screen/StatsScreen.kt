@@ -2,6 +2,7 @@ package com.jrgames.blutdruck.ui.screen
 
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,7 +20,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jrgames.blutdruck.data.local.MeasurementSession
@@ -357,76 +361,161 @@ private fun BoxPlotChart(
     labels:   List<String>,
     modifier: Modifier,
 ) {
-    Canvas(modifier = modifier) {
-        val lp = 60.dp.toPx(); val rp = 12.dp.toPx()
-        val tp = 10.dp.toPx(); val bp = 20.dp.toPx()
-        val cW = size.width - lp - rp
-        val cH = size.height - tp - bp
+    var selectedIdx by remember { mutableIntStateOf(-1) }
+    var canvasSize  by remember { mutableStateOf(IntSize.Zero) }
 
-        val allVals = groups.flatMap { (s, d) ->
-            listOf(s?.min, s?.max, d?.min, d?.max).filterNotNull()
-        }
-        if (allVals.isEmpty()) return@Canvas
-        val xMin = (allVals.min() - 5f).let { (it / 10).toInt() * 10f }
-        val xMax = (allVals.max() + 5f).let { ((it / 10).toInt() + 1) * 10f }
-        val xRange = (xMax - xMin).coerceAtLeast(1f)
+    // Padding-Konstanten (müssen mit Canvas übereinstimmen)
+    val lpDp = 60f; val rpDp = 12f; val tpDp = 10f; val bpDp = 20f
 
-        fun xPx(v: Float) = lp + cW * (v - xMin) / xRange
+    Box(modifier = modifier) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { canvasSize = it }
+                .pointerInput(groups.size) {
+                    detectTapGestures { offset ->
+                        val tpPx = tpDp.dp.toPx()
+                        val bpPx = bpDp.dp.toPx()
+                        val cH   = canvasSize.height - tpPx - bpPx
+                        val rowH = if (groups.isNotEmpty()) cH / groups.size else 1f
+                        val relY = offset.y - tpPx
+                        val idx  = (relY / rowH).toInt().coerceIn(0, groups.size - 1)
+                        selectedIdx = if (selectedIdx == idx) -1 else idx
+                    }
+                },
+        ) {
+            val lp = lpDp.dp.toPx(); val rp = rpDp.dp.toPx()
+            val tp = tpDp.dp.toPx(); val bp = bpDp.dp.toPx()
+            val cW = size.width - lp - rp
+            val cH = size.height - tp - bp
 
-        val gridColor  = Color(0xFFE0E0E0)
-        val gridPaint  = Paint().apply { textSize = 9.sp.toPx(); color = android.graphics.Color.GRAY; textAlign = Paint.Align.CENTER }
-        val labelPaint = Paint().apply { textSize = 9.sp.toPx(); color = android.graphics.Color.DKGRAY; textAlign = Paint.Align.RIGHT }
+            val allVals = groups.flatMap { (s, d) ->
+                listOf(s?.min, s?.max, d?.min, d?.max).filterNotNull()
+            }
+            if (allVals.isEmpty()) return@Canvas
+            val xMin   = (allVals.min() - 5f).let { (it / 10).toInt() * 10f }
+            val xMax   = (allVals.max() + 5f).let { ((it / 10).toInt() + 1) * 10f }
+            val xRange = (xMax - xMin).coerceAtLeast(1f)
 
-        // X-Gitter
-        val xStep = (xRange / 5).let { s -> listOf(5f,10f,20f).firstOrNull { it >= s } ?: 20f }
-        var xv = (xMin / xStep).toInt() * xStep
-        while (xv <= xMax) {
-            val xp = xPx(xv)
-            drawLine(gridColor, Offset(xp, tp), Offset(xp, tp + cH), strokeWidth = 1.dp.toPx())
-            drawContext.canvas.nativeCanvas.drawText("${xv.toInt()}", xp, size.height - 4.dp.toPx(), gridPaint)
-            xv += xStep
-        }
+            fun xPx(v: Float) = lp + cW * (v - xMin) / xRange
 
-        val rowH  = cH / groups.size
-        val boxH  = (rowH * 0.28f).coerceAtLeast(6.dp.toPx())
-        val gap   = boxH * 0.3f
+            val gridColor  = Color(0xFFE0E0E0)
+            val gridPaint  = Paint().apply { textSize = 9.sp.toPx(); color = android.graphics.Color.GRAY; textAlign = Paint.Align.CENTER }
+            val labelPaint = Paint().apply { textSize = 9.sp.toPx(); color = android.graphics.Color.DKGRAY; textAlign = Paint.Align.RIGHT }
 
-        groups.forEachIndexed { i, (sysBox, diaBox) ->
-            val rowCenter = tp + rowH * (i + 0.5f)
-
-            // Y-Label (mehrzeilig unterstützen wir mit vereinfachtem Zeilenumbruch)
-            val rawLabel = labels.getOrElse(i) { "" }
-            val lines = rawLabel.split("\n")
-            val lineH = 10.sp.toPx()
-            val yLabelTop = rowCenter - lineH * (lines.size - 1) / 2f
-            lines.forEachIndexed { li, line ->
-                drawContext.canvas.nativeCanvas.drawText(line, lp - 4.dp.toPx(), yLabelTop + li * lineH + lineH / 2f, labelPaint)
+            // X-Gitter
+            val xStep = (xRange / 5).let { s -> listOf(5f, 10f, 20f).firstOrNull { it >= s } ?: 20f }
+            var xv = (xMin / xStep).toInt() * xStep
+            while (xv <= xMax) {
+                val xp = xPx(xv)
+                drawLine(gridColor, Offset(xp, tp), Offset(xp, tp + cH), strokeWidth = 1.dp.toPx())
+                drawContext.canvas.nativeCanvas.drawText("${xv.toInt()}", xp, size.height - 4.dp.toPx(), gridPaint)
+                xv += xStep
             }
 
-            // Sys (oben) + Dia (unten)
-            for (bi in 0..1) {
-                val (box, color) = if (bi == 0) (sysBox to BpRed) else (diaBox to BpBlue)
-                if (box == null) continue
-                val cy = rowCenter + (bi * 2 - 1) * (boxH / 2f + gap / 2f)
+            val rowH = cH / groups.size
+            val boxH = (rowH * 0.28f).coerceAtLeast(6.dp.toPx())
+            val gap  = boxH * 0.3f
 
-                // Whisker links
-                drawLine(color, Offset(xPx(box.min), cy), Offset(xPx(box.q1), cy), strokeWidth = 1.5.dp.toPx())
-                drawLine(color, Offset(xPx(box.min), cy - boxH * 0.3f), Offset(xPx(box.min), cy + boxH * 0.3f), strokeWidth = 1.5.dp.toPx())
-                // Box
-                val boxL = xPx(box.q1); val boxR = xPx(box.q3)
-                drawRect(color.copy(alpha = 0.20f), Offset(boxL, cy - boxH / 2f), Size(boxR - boxL, boxH))
-                drawRect(color, Offset(boxL, cy - boxH / 2f), Size(boxR - boxL, boxH), style = Stroke(1.5.dp.toPx()))
-                // Median
-                val medX = xPx(box.median)
-                drawLine(color, Offset(medX, cy - boxH / 2f), Offset(medX, cy + boxH / 2f), strokeWidth = 2.5.dp.toPx())
-                // Mean (Kreuz)
-                val meanX = xPx(box.mean)
-                drawCircle(color, 3.dp.toPx(), Offset(meanX, cy))
-                // Whisker rechts
-                drawLine(color, Offset(xPx(box.q3), cy), Offset(xPx(box.max), cy), strokeWidth = 1.5.dp.toPx())
-                drawLine(color, Offset(xPx(box.max), cy - boxH * 0.3f), Offset(xPx(box.max), cy + boxH * 0.3f), strokeWidth = 1.5.dp.toPx())
+            groups.forEachIndexed { i, (sysBox, diaBox) ->
+                val rowCenter = tp + rowH * (i + 0.5f)
+
+                // Hintergrund-Highlight für ausgewählte Zeile
+                if (i == selectedIdx) {
+                    drawRect(
+                        color   = Color(0x11000000),
+                        topLeft = Offset(lp, tp + rowH * i),
+                        size    = Size(cW, rowH),
+                    )
+                }
+
+                // Y-Label (mehrzeilig)
+                val rawLabel  = labels.getOrElse(i) { "" }
+                val lines     = rawLabel.split("\n")
+                val lineH     = 10.sp.toPx()
+                val yLabelTop = rowCenter - lineH * (lines.size - 1) / 2f
+                lines.forEachIndexed { li, line ->
+                    drawContext.canvas.nativeCanvas.drawText(
+                        line, lp - 4.dp.toPx(), yLabelTop + li * lineH + lineH / 2f, labelPaint)
+                }
+
+                // Sys (oben) + Dia (unten)
+                for (bi in 0..1) {
+                    val (box, color) = if (bi == 0) (sysBox to BpRed) else (diaBox to BpBlue)
+                    if (box == null) continue
+                    val cy = rowCenter + (bi * 2 - 1) * (boxH / 2f + gap / 2f)
+
+                    drawLine(color, Offset(xPx(box.min), cy), Offset(xPx(box.q1), cy), strokeWidth = 1.5.dp.toPx())
+                    drawLine(color, Offset(xPx(box.min), cy - boxH * 0.3f), Offset(xPx(box.min), cy + boxH * 0.3f), strokeWidth = 1.5.dp.toPx())
+                    val boxL = xPx(box.q1); val boxR = xPx(box.q3)
+                    drawRect(color.copy(alpha = 0.20f), Offset(boxL, cy - boxH / 2f), Size(boxR - boxL, boxH))
+                    drawRect(color, Offset(boxL, cy - boxH / 2f), Size(boxR - boxL, boxH), style = Stroke(1.5.dp.toPx()))
+                    val medX = xPx(box.median)
+                    drawLine(color, Offset(medX, cy - boxH / 2f), Offset(medX, cy + boxH / 2f), strokeWidth = 2.5.dp.toPx())
+                    drawCircle(color, 3.dp.toPx(), Offset(xPx(box.mean), cy))
+                    drawLine(color, Offset(xPx(box.q3), cy), Offset(xPx(box.max), cy), strokeWidth = 1.5.dp.toPx())
+                    drawLine(color, Offset(xPx(box.max), cy - boxH * 0.3f), Offset(xPx(box.max), cy + boxH * 0.3f), strokeWidth = 1.5.dp.toPx())
+                }
             }
         }
+
+        // ── Tooltip-Overlay ───────────────────────────────────────────────────
+        if (selectedIdx >= 0 && selectedIdx < groups.size) {
+            val (sysBox, diaBox) = groups[selectedIdx]
+            val label = labels.getOrElse(selectedIdx) { "" }.replace("\n", " ")
+            if (sysBox != null || diaBox != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                        .fillMaxWidth(0.92f),
+                ) {
+                    Card(
+                        shape     = RoundedCornerShape(12.dp),
+                        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                label,
+                                style      = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color      = MaterialTheme.colorScheme.onSurface,
+                            )
+                            // Header
+                            Row(Modifier.fillMaxWidth()) {
+                                Text("", Modifier.width(36.dp))
+                                listOf("Min", "Q1", "Median", "Ø", "Q3", "Max", "n").forEach { h ->
+                                    Text(h, Modifier.weight(1f),
+                                        style     = MaterialTheme.typography.labelSmall,
+                                        color     = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines  = 1,
+                                    )
+                                }
+                            }
+                            sysBox?.let { BoxTooltipRow("Sys", it, BpRed) }
+                            diaBox?.let { BoxTooltipRow("Dia", it, BpBlue) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxTooltipRow(label: String, box: BoxStats, color: Color) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.width(36.dp),
+            style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+        listOf(box.min, box.q1, box.median, box.mean, box.q3, box.max).forEach { v ->
+            Text("%.0f".format(v), Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall, color = color)
+        }
+        Text("${box.n}", Modifier.weight(1f),
+            style = MaterialTheme.typography.labelSmall,
+            color = color.copy(alpha = 0.65f))
     }
 }
 

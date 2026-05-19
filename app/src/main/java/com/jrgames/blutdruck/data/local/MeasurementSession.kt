@@ -54,6 +54,9 @@ data class MeasurementSession(
     val avgPulse: Float
         get() = evaluatedReadings.map { it.pulse }.average().toFloat()
 
+    val avgPulsedruck: Float
+        get() = avgSys - avgDia
+
     private val availableReadings: List<Reading>
         get() = buildList {
             add(Reading(sys1, dia1, pulse1))

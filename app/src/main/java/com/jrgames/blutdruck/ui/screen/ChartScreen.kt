@@ -2,6 +2,7 @@ package com.jrgames.blutdruck.ui.screen
 
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,11 +35,21 @@ import com.jrgames.blutdruck.data.local.MeasurementSession
 import com.jrgames.blutdruck.ui.theme.BpAmber
 import com.jrgames.blutdruck.ui.theme.BpBlue
 import com.jrgames.blutdruck.ui.theme.BpGreen
+import com.jrgames.blutdruck.ui.theme.BpPurple
 import com.jrgames.blutdruck.ui.theme.BpRed
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+
+// ── Serien-Sichtbarkeit ───────────────────────────────────────────────────────
+
+private data class SeriesVisibility(
+    val sys:        Boolean = true,
+    val dia:        Boolean = true,
+    val pulse:      Boolean = true,
+    val pulsedruck: Boolean = true,
+)
 
 // ── Diagramm-Datenpunkt (pro Tag) ────────────────────────────────────────────
 
@@ -46,6 +58,7 @@ private data class ChartPoint(
     val avgSys:  Float, val minSys:  Float, val maxSys:  Float,
     val avgDia:  Float, val minDia:  Float, val maxDia:  Float,
     val avgPulse: Float,
+    val avgPulsedruck: Float,
     val count:    Int,
 )
 
@@ -57,16 +70,19 @@ private fun buildChartPoints(sessions: List<MeasurementSession>): List<ChartPoin
             val sysList   = group.map { it.avgSys }
             val diaList   = group.map { it.avgDia }
             val pulseList = group.map { it.avgPulse }
+            val avgSys = sysList.average().toFloat()
+            val avgDia = diaList.average().toFloat()
             ChartPoint(
-                dateMillis = group.minOf { it.timestampMillis },
-                avgSys     = sysList.average().toFloat(),
-                minSys     = sysList.min(),
-                maxSys     = sysList.max(),
-                avgDia     = diaList.average().toFloat(),
-                minDia     = diaList.min(),
-                maxDia     = diaList.max(),
-                avgPulse   = pulseList.average().toFloat(),
-                count      = group.size,
+                dateMillis    = group.minOf { it.timestampMillis },
+                avgSys        = avgSys,
+                minSys        = sysList.min(),
+                maxSys        = sysList.max(),
+                avgDia        = avgDia,
+                minDia        = diaList.min(),
+                maxDia        = diaList.max(),
+                avgPulse      = pulseList.average().toFloat(),
+                avgPulsedruck = avgSys - avgDia,
+                count         = group.size,
             )
         }
         .sortedBy { it.dateMillis }
@@ -129,6 +145,7 @@ fun ChartScreen(
 
     var chartSize    by remember { mutableStateOf(IntSize.Zero) }
     var selectedPoint by remember(allPoints) { mutableStateOf<ChartPoint?>(null) }
+    var visibility   by remember { mutableStateOf(SeriesVisibility()) }
 
     // Padding-Konstanten (dp) – müssen mit Canvas-Padding übereinstimmen
     val leftPadDp   = 44
@@ -185,7 +202,11 @@ fun ChartScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
-                ChartLegend(hasRange = visiblePoints.any { it.count > 1 })
+                ChartLegend(
+                    hasRange   = visiblePoints.any { it.count > 1 },
+                    visibility = visibility,
+                    onToggle   = { visibility = it },
+                )
                 Spacer(Modifier.height(12.dp))
 
                 Card(
@@ -277,6 +298,7 @@ fun ChartScreen(
                             xStartMs      = xStartMs,
                             xEndMs        = xEndMs,
                             selectedPoint = selectedPoint,
+                            visibility    = visibility,
                             modifier      = Modifier.fillMaxSize(),
                         )
 
@@ -319,9 +341,10 @@ fun ChartScreen(
                                             fontWeight = FontWeight.SemiBold,
                                             color      = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
-                                        TooltipRow("Sys",  "${pt.avgSys.toInt()} mmHg",  BpRed)
-                                        TooltipRow("Dia",  "${pt.avgDia.toInt()} mmHg",  BpBlue)
-                                        TooltipRow("Puls", "${pt.avgPulse.toInt()} /min", BpAmber)
+                                        if (visibility.sys)        TooltipRow("Sys",  "${pt.avgSys.toInt()} mmHg",       BpRed)
+                                        if (visibility.dia)        TooltipRow("Dia",  "${pt.avgDia.toInt()} mmHg",       BpBlue)
+                                        if (visibility.pulse)      TooltipRow("Puls", "${pt.avgPulse.toInt()} /min",     BpAmber)
+                                        if (visibility.pulsedruck) TooltipRow("PP",   "${pt.avgPulsedruck.toInt()} mmHg", BpPurple)
                                         if (pt.count > 1)
                                             Text(
                                                 "${pt.count} Messungen",
@@ -348,20 +371,43 @@ fun ChartScreen(
 // ── Legende ───────────────────────────────────────────────────────────────────
 
 @Composable
-private fun ChartLegend(hasRange: Boolean) {
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        LegendItem(color = BpRed,   label = "Systolisch")
-        LegendItem(color = BpBlue,  label = "Diastolisch")
-        LegendItem(color = BpAmber, label = "Puls")
-        if (hasRange) LegendRangeItem(color = BpRed.copy(alpha = 0.25f), label = "Tagesbereich")
+private fun ChartLegend(
+    hasRange:   Boolean,
+    visibility: SeriesVisibility,
+    onToggle:   (SeriesVisibility) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            LegendItem(BpRed,    "Systolisch",  visibility.sys)        { onToggle(visibility.copy(sys        = !visibility.sys)) }
+            LegendItem(BpBlue,   "Diastolisch", visibility.dia)        { onToggle(visibility.copy(dia        = !visibility.dia)) }
+            LegendItem(BpAmber,  "Puls",        visibility.pulse)      { onToggle(visibility.copy(pulse      = !visibility.pulse)) }
+            LegendItem(BpPurple, "Pulsdruck",   visibility.pulsedruck) { onToggle(visibility.copy(pulsedruck = !visibility.pulsedruck)) }
+        }
+        if (hasRange) Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            LegendRangeItem(color = BpRed.copy(alpha = 0.25f), label = "Tagesbereich")
+        }
     }
 }
 
 @Composable
-private fun LegendItem(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Surface(Modifier.size(width = 16.dp, height = 3.dp), color = color, shape = RoundedCornerShape(2.dp)) {}
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun LegendItem(color: Color, label: String, active: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier              = Modifier.clickable(onClick = onClick),
+        verticalAlignment     = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Surface(
+            Modifier.size(width = 16.dp, height = 3.dp),
+            color = if (active) color else color.copy(alpha = 0.25f),
+            shape = RoundedCornerShape(2.dp),
+        ) {}
+        Text(
+            label,
+            style          = MaterialTheme.typography.labelSmall,
+            color          = if (active) MaterialTheme.colorScheme.onSurfaceVariant
+                             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            textDecoration = if (active) TextDecoration.None else TextDecoration.LineThrough,
+        )
     }
 }
 
@@ -396,12 +442,14 @@ private fun BpLineChart(
     xStartMs:      Long,
     xEndMs:        Long,
     selectedPoint: ChartPoint? = null,
+    visibility:    SeriesVisibility = SeriesVisibility(),
     modifier:      Modifier = Modifier,
 ) {
-    val sysColor      = BpRed
-    val diaColor      = BpBlue
-    val pulseColor    = BpAmber
-    val gridColor     = Color(0xFFDDDDDD)
+    val sysColor          = BpRed
+    val diaColor          = BpBlue
+    val pulseColor        = BpAmber
+    val pulsedruckColor   = BpPurple
+    val gridColor         = Color(0xFFDDDDDD)
     val refColor      = BpRed.copy(alpha = 0.35f)
     val sysRangeColor = BpRed.copy(alpha = 0.22f)
     val diaRangeColor = BpBlue.copy(alpha = 0.18f)
@@ -421,9 +469,19 @@ private fun BpLineChart(
     if (displayPoints.isEmpty()) {
         yMin = 50f; yMax = 200f
     } else {
-        val allVals = displayPoints.flatMap { listOf(it.minSys, it.maxSys, it.minDia, it.maxDia, it.avgPulse) }
-        yMin = ((allVals.min() - 10f) / 10).toInt() * 10f
-        yMax = (((allVals.max() + 10f) / 10).toInt() + 1) * 10f
+        val allVals = buildList {
+            displayPoints.forEach { pt ->
+                if (visibility.sys)        { add(pt.minSys); add(pt.maxSys) }
+                if (visibility.dia)        { add(pt.minDia); add(pt.maxDia) }
+                if (visibility.pulse)      add(pt.avgPulse)
+                if (visibility.pulsedruck) add(pt.avgPulsedruck)
+            }
+        }
+        if (allVals.isEmpty()) { yMin = 50f; yMax = 200f }
+        else {
+            yMin = ((allVals.min() - 10f) / 10).toInt() * 10f
+            yMax = (((allVals.max() + 10f) / 10).toInt() + 1) * 10f
+        }
     }
 
     Canvas(modifier = modifier) {
@@ -479,12 +537,15 @@ private fun BpLineChart(
             textAlign = Paint.Align.CENTER
         }
         if (visible.size >= 2) {
-            val step = maxOf(1, visible.size / 7)
-            visible.indices.filter { it % step == 0 || it == visible.size - 1 }.forEach { i ->
-                val xp = xPx(visible[i].dateMillis)
-                if (xp in leftPad..(leftPad + cW)) {
+            // Mindestabstand zwischen zwei Labels: gemessene Textbreite + 60 % Puffer
+            val minLabelGap = xPaint.measureText("00.00") * 1.6f
+            var lastLabelX  = leftPad - minLabelGap  // ersten Punkt immer erlauben
+            visible.forEach { pt ->
+                val xp = xPx(pt.dateMillis)
+                if (xp in leftPad..(leftPad + cW) && xp - lastLabelX >= minLabelGap) {
                     drawLine(gridColor, Offset(xp, topPad), Offset(xp, topPad + cH + 4.dp.toPx()), strokeWidth = 1.dp.toPx())
-                    drawContext.canvas.nativeCanvas.drawText(labelFmt.format(Date(visible[i].dateMillis)), xp, size.height - 6.dp.toPx(), xPaint)
+                    drawContext.canvas.nativeCanvas.drawText(labelFmt.format(Date(pt.dateMillis)), xp, size.height - 6.dp.toPx(), xPaint)
+                    lastLabelX = xp
                 }
             }
         }
@@ -493,8 +554,8 @@ private fun BpLineChart(
         val barWidth = 6.dp.toPx()
         visible.filter { it.count > 1 }.forEach { pt ->
             val xp = xPx(pt.dateMillis)
-            drawLine(sysRangeColor, Offset(xp, yPx(pt.maxSys)), Offset(xp, yPx(pt.minSys)), strokeWidth = barWidth, cap = StrokeCap.Round)
-            drawLine(diaRangeColor, Offset(xp, yPx(pt.maxDia)), Offset(xp, yPx(pt.minDia)), strokeWidth = barWidth * 0.7f, cap = StrokeCap.Round)
+            if (visibility.sys) drawLine(sysRangeColor, Offset(xp, yPx(pt.maxSys)), Offset(xp, yPx(pt.minSys)), strokeWidth = barWidth, cap = StrokeCap.Round)
+            if (visibility.dia) drawLine(diaRangeColor, Offset(xp, yPx(pt.maxDia)), Offset(xp, yPx(pt.minDia)), strokeWidth = barWidth * 0.7f, cap = StrokeCap.Round)
         }
 
         // Serien
@@ -514,19 +575,21 @@ private fun BpLineChart(
             }
         }
 
-        plotSeries(visible, { it.avgSys   }, sysColor)
-        plotSeries(visible, { it.avgDia   }, diaColor)
-        plotSeries(visible, { it.avgPulse }, pulseColor)
+        if (visibility.sys)        plotSeries(visible, { it.avgSys        }, sysColor)
+        if (visibility.dia)        plotSeries(visible, { it.avgDia        }, diaColor)
+        if (visibility.pulse)      plotSeries(visible, { it.avgPulse      }, pulseColor)
+        if (visibility.pulsedruck) plotSeries(visible, { it.avgPulsedruck }, pulsedruckColor)
 
         // Ausgewählten Punkt hervorheben
         selectedPoint?.let { pt ->
             val xp = xPx(pt.dateMillis)
             if (xp in (leftPad - 12.dp.toPx())..(leftPad + cW + 12.dp.toPx())) {
                 listOf(
-                    pt.avgSys   to sysColor,
-                    pt.avgDia   to diaColor,
-                    pt.avgPulse to pulseColor,
-                ).forEach { (v, col) ->
+                    Triple(pt.avgSys,        sysColor,        visibility.sys),
+                    Triple(pt.avgDia,        diaColor,        visibility.dia),
+                    Triple(pt.avgPulse,      pulseColor,      visibility.pulse),
+                    Triple(pt.avgPulsedruck, pulsedruckColor, visibility.pulsedruck),
+                ).filter { it.third }.forEach { (v, col, _) ->
                     val yp = yPx(v)
                     drawCircle(col.copy(alpha = 0.25f), 10.dp.toPx(), Offset(xp, yp))
                     drawCircle(col, 5.dp.toPx(), Offset(xp, yp))
@@ -544,13 +607,15 @@ private fun BpLineChart(
 
 @Composable
 private fun ChartStats(sessions: List<MeasurementSession>) {
-    val allSys   = sessions.map { it.avgSys }
-    val allDia   = sessions.map { it.avgDia }
-    val allPulse = sessions.map { it.avgPulse }
+    val allSys        = sessions.map { it.avgSys }
+    val allDia        = sessions.map { it.avgDia }
+    val allPulse      = sessions.map { it.avgPulse }
+    val allPulsedruck = sessions.map { it.avgPulsedruck }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        StatRowCard("Systolisch",  BpRed,   allSys.min(),   allSys.average().toFloat(),   allSys.max(),   "mmHg")
-        StatRowCard("Diastolisch", BpBlue,  allDia.min(),   allDia.average().toFloat(),   allDia.max(),   "mmHg")
-        StatRowCard("Puls",        BpAmber, allPulse.min(), allPulse.average().toFloat(), allPulse.max(), "/min")
+        StatRowCard("Systolisch",  BpRed,    allSys.min(),        allSys.average().toFloat(),        allSys.max(),        "mmHg")
+        StatRowCard("Diastolisch", BpBlue,   allDia.min(),        allDia.average().toFloat(),        allDia.max(),        "mmHg")
+        StatRowCard("Puls",        BpAmber,  allPulse.min(),      allPulse.average().toFloat(),      allPulse.max(),      "/min")
+        StatRowCard("Pulsdruck",   BpPurple, allPulsedruck.min(), allPulsedruck.average().toFloat(), allPulsedruck.max(), "mmHg")
     }
 }
 

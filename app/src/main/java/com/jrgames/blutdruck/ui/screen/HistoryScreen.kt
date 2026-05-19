@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.jrgames.blutdruck.data.local.MeasurementSession
 import com.jrgames.blutdruck.domain.BpClassifier
 import com.jrgames.blutdruck.ui.theme.BpBlue
+import com.jrgames.blutdruck.ui.theme.BpPurple
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -219,16 +220,19 @@ private fun CompactTable(
         ) {
             Text("Datum / Zeit", Modifier.weight(2.2f), fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
-            Text("Sys", Modifier.weight(1f), fontSize = 11.sp,
+            Text("Sys", Modifier.weight(0.85f), fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center)
-            Text("Dia", Modifier.weight(1f), fontSize = 11.sp,
+            Text("Dia", Modifier.weight(0.85f), fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center)
-            Text("Puls", Modifier.weight(1f), fontSize = 11.sp,
+            Text("PP", Modifier.weight(0.85f), fontSize = 11.sp,
+                color = BpPurple.copy(alpha = 0.75f), fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center)
+            Text("Puls", Modifier.weight(0.85f), fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center)
-            Text("Kat.", Modifier.weight(1f), fontSize = 11.sp,
+            Text("Kat.", Modifier.weight(0.9f), fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center)
         }
@@ -253,16 +257,19 @@ private fun CompactTable(
                 ) {
                     Text(dateFmt.format(Date(s.timestampMillis)),
                         Modifier.weight(2.2f), fontSize = 12.sp, color = txColor)
-                    Text("${s.avgSys.toInt()}", Modifier.weight(1f),
+                    Text("${s.avgSys.toInt()}", Modifier.weight(0.85f),
                         fontSize = 13.sp, fontWeight = FontWeight.Bold,
                         color = txColor, textAlign = TextAlign.Center)
-                    Text("${s.avgDia.toInt()}", Modifier.weight(1f),
+                    Text("${s.avgDia.toInt()}", Modifier.weight(0.85f),
                         fontSize = 13.sp, fontWeight = FontWeight.Bold,
                         color = txColor, textAlign = TextAlign.Center)
-                    Text("${s.avgPulse.toInt()}", Modifier.weight(1f),
+                    Text("${s.avgPulsedruck.toInt()}", Modifier.weight(0.85f),
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        color = BpPurple, textAlign = TextAlign.Center)
+                    Text("${s.avgPulse.toInt()}", Modifier.weight(0.85f),
                         fontSize = 12.sp, color = txColor, textAlign = TextAlign.Center)
                     Surface(color = txColor.copy(alpha = 0.15f), shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier.weight(1f)) {
+                        modifier = Modifier.weight(0.9f)) {
                         Text(cat.shortLabel,
                             Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                             fontSize = 10.sp, color = txColor,
@@ -339,9 +346,14 @@ private fun SessionDetailDialog(
                 ) {
                     Text("${session.evaluationLabel}:", style = MaterialTheme.typography.labelMedium,
                         color = txColor, fontWeight = FontWeight.SemiBold)
-                    Text("${session.avgSys.toInt()} / ${session.avgDia.toInt()} mmHg  ·  ${session.avgPulse.toInt()} /min",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = txColor, fontWeight = FontWeight.Bold)
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("${session.avgSys.toInt()} / ${session.avgDia.toInt()} mmHg  ·  ${session.avgPulse.toInt()} /min",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = txColor, fontWeight = FontWeight.Bold)
+                        Text("Pulsdruck: ${session.avgPulsedruck.toInt()} mmHg",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = BpPurple, fontWeight = FontWeight.SemiBold)
+                    }
                 }
 
                 // Kategorie
@@ -483,11 +495,18 @@ private fun SessionCard(session: MeasurementSession, onDelete: () -> Unit) {
             ) {
                 Text("${session.evaluationLabel}:", style = MaterialTheme.typography.labelMedium,
                     color = txColor, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "${session.avgSys.toInt()} / ${session.avgDia.toInt()} mmHg  ·  ${session.avgPulse.toInt()} /min",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = txColor, fontWeight = FontWeight.Bold,
-                )
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "${session.avgSys.toInt()} / ${session.avgDia.toInt()} mmHg  ·  ${session.avgPulse.toInt()} /min",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = txColor, fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Pulsdruck: ${session.avgPulsedruck.toInt()} mmHg",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = BpPurple, fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
 
             // Hinweis / Kommentar

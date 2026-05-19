@@ -19,14 +19,10 @@ import androidx.compose.ui.unit.sp
 import com.jrgames.blutdruck.data.local.MeasurementSession
 import com.jrgames.blutdruck.domain.BpClassifier
 import com.jrgames.blutdruck.ui.theme.BpBlue
-import com.jrgames.blutdruck.ui.theme.BpGreen
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.jrgames.blutdruck.ui.theme.BpPurple
 
 @Composable
 fun HomeScreen(
-    latestSession: MeasurementSession?,
     sessions: List<MeasurementSession> = emptyList(),
     onStartMeasure: () -> Unit,
     onHistory: () -> Unit,
@@ -65,25 +61,22 @@ fun HomeScreen(
                 }
             }
 
-            // ── Letzter Messwert ─────────────────────────────────────────
-            if (latestSession != null) {
-                LatestCard(latestSession)
-            } else {
+            // ── Durchschnitte mit Einordnung ──────────────────────────────
+            if (sessions.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Box(Modifier.padding(24.dp).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text("Noch keine Messungen vorhanden.",
+                        Text(
+                            "Noch keine Messungen vorhanden.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
-            }
-
-            // ── Gesamtdurchschnitt ────────────────────────────────────────
-            if (sessions.size >= 2) {
-                AveragesCard(sessions)
+            } else {
+                AvgClassCard(sessions)
             }
 
             Spacer(Modifier.weight(1f))
@@ -139,17 +132,23 @@ fun HomeScreen(
     }
 }
 
+// ── Durchschnitte mit Einordnung ─────────────────────────────────────────────
+
 @Composable
-private fun LatestCard(session: MeasurementSession) {    val cat      = BpClassifier.classify(session.avgSys, session.avgDia)
-    val cardCol  = BpClassifier.cardColor(cat)
-    val textCol  = BpClassifier.textColor(cat)
-    val dateFmt  = SimpleDateFormat("dd.MM.yyyy  HH:mm", Locale.getDefault())
-    val dateStr  = dateFmt.format(Date(session.timestampMillis))
+private fun AvgClassCard(sessions: List<MeasurementSession>) {
+    val avgSys        = sessions.map { it.avgSys }.average().toFloat()
+    val avgDia        = sessions.map { it.avgDia }.average().toFloat()
+    val avgPulsedruck = sessions.map { it.avgPulsedruck }.average().toFloat()
+
+    val sysCat = BpClassifier.classifySys(avgSys)
+    val diaCat = BpClassifier.classifyDia(avgDia)
+    val ppCat  = BpClassifier.classifyPulsedruck(avgPulsedruck)
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors   = CardDefaults.cardColors(containerColor = cardCol),
-        shape    = RoundedCornerShape(16.dp),
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(16.dp),
+        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
@@ -157,97 +156,88 @@ private fun LatestCard(session: MeasurementSession) {    val cat      = BpClassi
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Letzte Messung", style = MaterialTheme.typography.labelLarge,
-                    color = textCol.copy(alpha = 0.75f))
-                Text(dateStr, style = MaterialTheme.typography.labelSmall,
-                    color = textCol.copy(alpha = 0.6f))
-            }
-
-            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    "${session.avgSys.toInt()} / ${session.avgDia.toInt()}",
-                    fontSize = 42.sp, fontWeight = FontWeight.Bold, color = textCol,
+                    "Ø Blutdruck",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold,
                 )
-                Text("mmHg", style = MaterialTheme.typography.bodyMedium,
-                    color = textCol.copy(alpha = 0.7f), modifier = Modifier.padding(bottom = 6.dp))
-            }
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Puls: ${session.avgPulse.toInt()} /min",
-                    style = MaterialTheme.typography.bodyMedium, color = textCol)
-                Text("Arm: ${if (session.arm == "LINKS") "Links" else "Rechts"} · ${session.evaluationLabel}",
-                    style = MaterialTheme.typography.bodySmall, color = textCol.copy(alpha = 0.7f))
-            }
-            session.note?.takeIf { it.isNotBlank() }?.let { note ->
                 Text(
-                    "💬 $note",
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = textCol.copy(alpha = 0.85f),
-                    modifier = Modifier.fillMaxWidth(),
+                    "${sessions.size} Messung${if (sessions.size != 1) "en" else ""}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 )
             }
 
+            AvgClassRow(
+                label    = "Systolisch",
+                value    = "${avgSys.toInt()} mmHg",
+                catLabel = sysCat.label,
+                bgColor  = BpClassifier.cardColor(sysCat),
+                fgColor  = BpClassifier.textColor(sysCat),
+            )
+            AvgClassRow(
+                label    = "Diastolisch",
+                value    = "${avgDia.toInt()} mmHg",
+                catLabel = diaCat.label,
+                bgColor  = BpClassifier.cardColor(diaCat),
+                fgColor  = BpClassifier.textColor(diaCat),
+            )
+            AvgClassRow(
+                label    = "Pulsdruck",
+                value    = "${avgPulsedruck.toInt()} mmHg",
+                catLabel = ppCat.label,
+                bgColor  = ppCat.cardColor,
+                fgColor  = ppCat.textColor,
+                labelColor = BpPurple,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AvgClassRow(
+    label:      String,
+    value:      String,
+    catLabel:   String,
+    bgColor:    Color,
+    fgColor:    Color,
+    labelColor: Color? = null,
+) {
+    Surface(
+        color    = bgColor,
+        shape    = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier          = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    label,
+                    style  = MaterialTheme.typography.labelMedium,
+                    color  = (labelColor ?: fgColor).copy(alpha = 0.75f),
+                )
+                Text(
+                    value,
+                    style      = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color      = labelColor ?: fgColor,
+                )
+            }
             Surface(
-                color = textCol.copy(alpha = 0.12f),
+                color = fgColor.copy(alpha = 0.13f),
                 shape = RoundedCornerShape(8.dp),
             ) {
                 Text(
-                    cat.label,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelMedium, color = textCol,
+                    catLabel,
+                    modifier   = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    style      = MaterialTheme.typography.labelMedium,
+                    color      = fgColor,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun AveragesCard(sessions: List<MeasurementSession>) {
-    val avgSys   = sessions.map { it.avgSys }.average()
-    val avgDia   = sessions.map { it.avgDia }.average()
-    val avgPulse = sessions.map { it.avgPulse }.average()
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape    = RoundedCornerShape(16.dp),
-        colors   = CardDefaults.cardColors(containerColor = BpBlue.copy(alpha = 0.06f)),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Durchschnitt aller Messungen",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = BpBlue.copy(alpha = 0.8f),
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "${sessions.size} Messungen",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = BpBlue.copy(alpha = 0.55f),
-                )
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                AvgItem(label = "Sys",  value = "%.0f".format(avgSys),   unit = "mmHg")
-                AvgItem(label = "Dia",  value = "%.0f".format(avgDia),   unit = "mmHg")
-                AvgItem(label = "Puls", value = "%.0f".format(avgPulse), unit = "/min")
-            }
-        }
-    }
-}
-
-@Composable
-private fun AvgItem(label: String, value: String, unit: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = BpBlue.copy(alpha = 0.6f))
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = BpBlue)
-        Text(unit,  style = MaterialTheme.typography.labelSmall, color = BpBlue.copy(alpha = 0.5f))
     }
 }

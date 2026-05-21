@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -30,17 +29,8 @@ import com.jrgames.blutdruck.data.local.MeasurementSession
 import com.jrgames.blutdruck.ui.theme.BpBlue
 import com.jrgames.blutdruck.ui.theme.BpRed
 import java.util.Calendar
-import kotlin.math.*
 
 // ── Hilfs-Datenklassen ────────────────────────────────────────────────────────
-
-private data class Distribution(
-    val label:  String,
-    val mean:   Float,
-    val stdDev: Float,
-    val color:  Color,
-    val n:      Int,
-)
 
 private data class BoxStats(
     val label:  String,
@@ -54,12 +44,6 @@ private data class BoxStats(
 )
 
 // ── Hilfs-Funktionen ──────────────────────────────────────────────────────────
-
-private fun gaussianPdf(x: Float, mean: Float, std: Float): Float {
-    if (std <= 0f) return 0f
-    val z = (x - mean) / std
-    return (1f / (std * sqrt(2f * PI.toFloat()))) * exp(-0.5f * z * z)
-}
 
 private fun percentile(sorted: List<Float>, p: Float): Float {
     if (sorted.isEmpty()) return 0f
@@ -82,12 +66,6 @@ private fun boxStats(label: String, values: List<Float>): BoxStats? {
         mean   = values.average().toFloat(),
         n      = values.size,
     )
-}
-
-private fun stdDev(values: List<Float>): Float {
-    if (values.size < 2) return 1f
-    val m = values.average().toFloat()
-    return sqrt(values.map { (it - m).pow(2) }.average().toFloat()).coerceAtLeast(0.1f)
 }
 
 private fun hourOfDay(ms: Long): Int {
@@ -154,33 +132,34 @@ fun StatsScreen(
         ) {
             Spacer(Modifier.height(4.dp))
 
-            // ── 1. Verteilung: Gaußkurven ──────────────────────────────────
-            SectionHeader("Verteilung (Gauß-Kurve)")
+            // ── 1. Verteilung: Histogramm ──────────────────────────────────
+            SectionHeader("Verteilung")
             Text(
-                "Blau = Linker Arm  ·  Rot = Rechter Arm",
+                "Dunkel = Linker Arm  ·  Hell = Rechter Arm  ·  Linie = Mittelwert",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            val links  = sessions.filter { it.arm == "LINKS" }
-            val rechts = sessions.filter { it.arm == "RECHTS" }
+            val linksS  = sessions.filter { it.arm == "LINKS" }
+            val rechtsS = sessions.filter { it.arm == "RECHTS" }
 
-            listOf(
-                Triple("Systolisch (mmHg)",   sessions.map { it.avgSys },   links.map { it.avgSys }   to rechts.map { it.avgSys }),
-                Triple("Diastolisch (mmHg)",  sessions.map { it.avgDia },   links.map { it.avgDia }   to rechts.map { it.avgDia }),
-                Triple("Herzfrequenz (/min)", sessions.map { it.avgPulse }, links.map { it.avgPulse } to rechts.map { it.avgPulse }),
-            ).forEach { (title, all, armPair) ->
-                val (lVals, rVals) = armPair
-                val dists = buildList {
-                    if (lVals.size >= 2) add(Distribution("Links",  lVals.average().toFloat(), stdDev(lVals), BpBlue, lVals.size))
-                    if (rVals.size >= 2) add(Distribution("Rechts", rVals.average().toFloat(), stdDev(rVals), BpRed,  rVals.size))
-                    if (isEmpty() && all.size >= 2) add(Distribution("Gesamt", all.average().toFloat(), stdDev(all), BpBlue, all.size))
-                }
-                if (dists.isNotEmpty()) {
-                    ChartCard(title = title, height = 180.dp) {
-                        GaussianChart(distributions = dists, modifier = Modifier.fillMaxSize())
-                    }
-                }
+            ChartCard(title = "Systolisch (mmHg)", height = 180.dp) {
+                HistogramChart(
+                    series1  = linksS.map { it.avgSys },
+                    color1   = ArmLinksColor,
+                    series2  = rechtsS.map { it.avgSys },
+                    color2   = ArmRechtsColor,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            ChartCard(title = "Diastolisch (mmHg)", height = 180.dp) {
+                HistogramChart(
+                    series1  = linksS.map { it.avgDia },
+                    color1   = ArmLinksDiaColor,
+                    series2  = rechtsS.map { it.avgDia },
+                    color2   = ArmRechtsDiaColor,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
 
             // ── 2. BoxPlot: Tageszeit ─────────────────────────────────────
@@ -260,95 +239,108 @@ private fun ChartCard(title: String, height: androidx.compose.ui.unit.Dp, conten
     }
 }
 
-// ── Gauß-Diagramm ─────────────────────────────────────────────────────────────
+// ── Histogramm ────────────────────────────────────────────────────────────────
+
+private val ArmLinksColor    = Color(0xFF1565C0)   // dunkelblau  (Sys Links)
+private val ArmRechtsColor   = Color(0xFF90CAF9)   // hellblau    (Sys Rechts)
+private val ArmLinksDiaColor = Color(0xFFB71C1C)   // dunkelrot   (Dia Links)
+private val ArmRechtsDiaColor= Color(0xFFEF9A9A)   // hellrot     (Dia Rechts)
 
 @Composable
-private fun GaussianChart(distributions: List<Distribution>, modifier: Modifier) {
+private fun HistogramChart(
+    series1:  List<Float>,
+    color1:   Color,
+    series2:  List<Float>,
+    color2:   Color,
+    modifier: Modifier,
+) {
+    if (series1.isEmpty() && series2.isEmpty()) return
+
     Canvas(modifier = modifier) {
-        val lp = 42.dp.toPx(); val rp = 10.dp.toPx()
-        val tp = 10.dp.toPx(); val bp = 28.dp.toPx()
+        val lp = 32.dp.toPx(); val rp = 8.dp.toPx()
+        val tp = 10.dp.toPx(); val bp = 22.dp.toPx()
         val cW = size.width - lp - rp
         val cH = size.height - tp - bp
 
-        // X-Bereich: über alle Verteilungen μ ± 3σ
-        val xMin = distributions.minOf { it.mean - 3.5f * it.stdDev }
-        val xMax = distributions.maxOf { it.mean + 3.5f * it.stdDev }
-        val xRange = (xMax - xMin).coerceAtLeast(1f)
+        val binWidth = 5f
+        val allVals  = series1 + series2
+        val dataMin  = (allVals.min() / binWidth).toInt() * binWidth
+        val dataMax  = ((allVals.max() / binWidth).toInt() + 1) * binWidth
+        val binCount = ((dataMax - dataMin) / binWidth).toInt().coerceAtLeast(1)
 
-        // Maximale Dichte für Y-Skalierung
-        val steps = 300
-        val yMax = distributions.maxOf { d ->
-            gaussianPdf(d.mean, d.mean, d.stdDev)
-        } * 1.15f
+        fun binIdx(v: Float) = ((v - dataMin) / binWidth).toInt().coerceIn(0, binCount - 1)
 
-        fun xPx(v: Float) = lp + cW * (v - xMin) / xRange
-        fun yPx(v: Float) = tp + cH * (1f - v / yMax)
+        val counts1  = IntArray(binCount).also { arr -> series1.forEach { arr[binIdx(it)]++ } }
+        val counts2  = IntArray(binCount).also { arr -> series2.forEach { arr[binIdx(it)]++ } }
+        val maxCount = (counts1.max().coerceAtLeast(counts2.max())).coerceAtLeast(1)
 
-        // Gitter
-        val gridColor = Color(0xFFDDDDDD)
-        val xPaint = Paint().apply { textSize = 9.sp.toPx(); color = android.graphics.Color.GRAY; textAlign = Paint.Align.CENTER }
-        val xStep = (xRange / 5).let { s -> listOf(1f,2f,5f,10f,20f).firstOrNull { it >= s } ?: 20f }
-        var xv = (xMin / xStep).toInt() * xStep
-        while (xv <= xMax) {
-            val xp = xPx(xv)
-            drawLine(gridColor, Offset(xp, tp), Offset(xp, tp + cH), strokeWidth = 1.dp.toPx())
-            drawContext.canvas.nativeCanvas.drawText("${xv.toInt()}", xp, size.height - 4.dp.toPx(), xPaint)
-            xv += xStep
+        fun xPx(v: Float)  = lp + cW * (v - dataMin) / (dataMax - dataMin)
+        fun barTop(n: Int) = tp + cH * (1f - n.toFloat() / maxCount)
+
+        // Y-Gitter
+        val gridColor = Color(0xFFE0E0E0)
+        val yStep = when {
+            maxCount <= 5  -> 1
+            maxCount <= 15 -> 2
+            maxCount <= 30 -> 5
+            else           -> 10
+        }
+        val yPaint = Paint().apply { textSize = 9.sp.toPx(); color = android.graphics.Color.GRAY; textAlign = Paint.Align.RIGHT }
+        var yv = 0
+        while (yv <= maxCount) {
+            val yp = tp + cH * (1f - yv.toFloat() / maxCount)
+            drawLine(gridColor, Offset(lp, yp), Offset(lp + cW, yp), strokeWidth = 1.dp.toPx())
+            drawContext.canvas.nativeCanvas.drawText("$yv", lp - 3.dp.toPx(), yp + 3.dp.toPx(), yPaint)
+            yv += yStep
         }
 
-        // Kurven zeichnen
-        distributions.forEach { dist ->
-            val fillColor = dist.color.copy(alpha = 0.18f)
-            val lineColor = dist.color
+        // Baseline
+        drawLine(Color(0xFFAAAAAA), Offset(lp, tp + cH), Offset(lp + cW, tp + cH), strokeWidth = 1.dp.toPx())
 
-            val fillPath = Path()
-            var first = true
-            for (i in 0..steps) {
-                val x = xMin + xRange * i / steps
-                val y = gaussianPdf(x, dist.mean, dist.stdDev)
-                val px = xPx(x); val py = yPx(y)
-                if (first) { fillPath.moveTo(px, tp + cH); fillPath.lineTo(px, py); first = false }
-                else fillPath.lineTo(px, py)
+        // Balken
+        val slotW = cW / binCount
+        val gap   = (slotW * 0.06f).coerceAtLeast(1.dp.toPx())
+        val barW  = ((slotW - gap * 3f) / 2f).coerceAtLeast(1.dp.toPx())
+
+        for (i in 0 until binCount) {
+            val slotLeft = lp + slotW * i
+
+            if (counts1[i] > 0) {
+                val h = cH - (barTop(counts1[i]) - tp)
+                drawRect(color1, Offset(slotLeft + gap, barTop(counts1[i])), Size(barW, h))
             }
-            fillPath.lineTo(xPx(xMax), tp + cH)
-            fillPath.close()
-            drawPath(fillPath, fillColor)
-
-            val linePath = Path()
-            first = true
-            for (i in 0..steps) {
-                val x = xMin + xRange * i / steps
-                val y = gaussianPdf(x, dist.mean, dist.stdDev)
-                val px = xPx(x); val py = yPx(y)
-                if (first) { linePath.moveTo(px, py); first = false } else linePath.lineTo(px, py)
+            if (counts2[i] > 0) {
+                val h = cH - (barTop(counts2[i]) - tp)
+                drawRect(color2, Offset(slotLeft + gap * 2f + barW, barTop(counts2[i])), Size(barW, h))
             }
-            drawPath(linePath, lineColor, style = Stroke(width = 2.dp.toPx()))
+        }
 
-            // Mittellinie
-            val peakY = yPx(gaussianPdf(dist.mean, dist.mean, dist.stdDev))
-            drawLine(lineColor.copy(alpha = 0.6f),
-                Offset(xPx(dist.mean), tp + cH),
-                Offset(xPx(dist.mean), peakY),
-                strokeWidth = 1.5.dp.toPx())
-
-            // μ-Label an der Kurvenspitze mit Hintergrund
-            val lblText = "μ=${dist.mean.toInt()}  n=${dist.n}"
-            val lbl = Paint().apply {
-                textSize  = 10.sp.toPx()
-                color     = lineColor.toArgb()
-                textAlign = Paint.Align.CENTER
-                isFakeBoldText = true
-            }
-            val textW  = lbl.measureText(lblText)
-            val textH  = lbl.textSize
-            val lblX   = xPx(dist.mean).coerceIn(lp + textW / 2 + 4.dp.toPx(), lp + cW - textW / 2 - 4.dp.toPx())
-            val lblY   = (peakY - 6.dp.toPx()).coerceAtLeast(tp + textH)
-            val bgPaint = Paint().apply { color = android.graphics.Color.argb(210, 255, 255, 255) }
+        // Mittelwert-Linien
+        val meanLabelPaint = Paint().apply { textSize = 9.sp.toPx(); isFakeBoldText = true; textAlign = Paint.Align.CENTER }
+        val meanBgPaint    = Paint().apply { color = android.graphics.Color.argb(210, 255, 255, 255) }
+        listOf(series1 to color1, series2 to color2).forEachIndexed { idx, (series, color) ->
+            if (series.isEmpty()) return@forEachIndexed
+            val mean  = series.average().toFloat()
+            val meanX = xPx(mean).coerceIn(lp + 1f, lp + cW - 1f)
+            drawLine(color, Offset(meanX, tp), Offset(meanX, tp + cH), strokeWidth = 1.5.dp.toPx())
+            meanLabelPaint.color = color.toArgb()
+            val text  = "∅${mean.toInt()}"
+            val textW = meanLabelPaint.measureText(text)
+            val textH = meanLabelPaint.textSize
+            val lx    = meanX.coerceIn(lp + textW / 2 + 2.dp.toPx(), lp + cW - textW / 2 - 2.dp.toPx())
+            val ly    = tp + textH + idx * (textH + 2.dp.toPx())
             drawContext.canvas.nativeCanvas.drawRoundRect(
-                android.graphics.RectF(lblX - textW / 2 - 4.dp.toPx(), lblY - textH,
-                    lblX + textW / 2 + 4.dp.toPx(), lblY + 3.dp.toPx()),
-                4.dp.toPx(), 4.dp.toPx(), bgPaint)
-            drawContext.canvas.nativeCanvas.drawText(lblText, lblX, lblY, lbl)
+                android.graphics.RectF(lx - textW / 2 - 2.dp.toPx(), ly - textH, lx + textW / 2 + 2.dp.toPx(), ly + 2.dp.toPx()),
+                2.dp.toPx(), 2.dp.toPx(), meanBgPaint)
+            drawContext.canvas.nativeCanvas.drawText(text, lx, ly, meanLabelPaint)
+        }
+
+        // X-Achse
+        val xPaint = Paint().apply { textSize = 9.sp.toPx(); color = android.graphics.Color.GRAY; textAlign = Paint.Align.CENTER }
+        val xStep  = if (binCount <= 12) 1 else 2
+        for (i in 0..binCount step xStep) {
+            val xp = xPx(dataMin + i * binWidth)
+            drawContext.canvas.nativeCanvas.drawText("${(dataMin + i * binWidth).toInt()}", xp, size.height - 3.dp.toPx(), xPaint)
         }
     }
 }

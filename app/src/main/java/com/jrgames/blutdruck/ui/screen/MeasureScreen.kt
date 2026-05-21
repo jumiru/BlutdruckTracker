@@ -131,6 +131,7 @@ fun MeasureScreen(
                     secondsLeft = secondsLeft,
                     nextIndex   = p.next,
                     onSkip      = { phase = Phase.Input(p.next) },
+                    onFinishNow = if (p.next == 2) {{ phase = Phase.Summary }} else null,
                 )
 
                 Phase.Summary -> SummaryStep(
@@ -309,7 +310,12 @@ private fun BpTextField(label: String, value: String, onValue: (String) -> Unit,
 // ── Countdown ────────────────────────────────────────────────────────────────
 
 @Composable
-private fun CountdownStep(secondsLeft: Int, nextIndex: Int, onSkip: () -> Unit) {
+private fun CountdownStep(
+    secondsLeft: Int,
+    nextIndex:   Int,
+    onSkip:      () -> Unit,
+    onFinishNow: (() -> Unit)? = null,
+) {
     val progress by animateFloatAsState(
         targetValue   = secondsLeft / 30f,
         animationSpec = tween(durationMillis = 900),
@@ -358,6 +364,11 @@ private fun CountdownStep(secondsLeft: Int, nextIndex: Int, onSkip: () -> Unit) 
         Spacer(Modifier.height(16.dp))
         TextButton(onClick = onSkip) {
             Text("Pause überspringen", style = MaterialTheme.typography.labelMedium)
+        }
+        if (onFinishNow != null) {
+            TextButton(onClick = onFinishNow) {
+                Text("Mit 2 Messungen abschließen", style = MaterialTheme.typography.labelMedium)
+            }
         }
     }
 }

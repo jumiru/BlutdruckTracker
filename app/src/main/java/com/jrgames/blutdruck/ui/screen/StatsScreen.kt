@@ -135,7 +135,7 @@ fun StatsScreen(
             // ── 1. Verteilung: Histogramm ──────────────────────────────────
             SectionHeader("Verteilung")
             Text(
-                "Dunkel = Linker Arm  ·  Hell = Rechter Arm  ·  Linie = Mittelwert",
+                "Rot = Sys  ·  Blau = Dia  ·  Dunkel = Links  ·  Hell = Rechts  ·  Linie = Mittelwert",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -143,22 +143,13 @@ fun StatsScreen(
             val linksS  = sessions.filter { it.arm == "LINKS" }
             val rechtsS = sessions.filter { it.arm == "RECHTS" }
 
-            ChartCard(title = "Systolisch (mmHg)", height = 180.dp) {
+            ChartCard(title = "Systolisch & Diastolisch (mmHg)", height = 200.dp) {
                 HistogramChart(
-                    series1  = linksS.map { it.avgSys },
-                    color1   = ArmLinksColor,
-                    series2  = rechtsS.map { it.avgSys },
-                    color2   = ArmRechtsColor,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            ChartCard(title = "Diastolisch (mmHg)", height = 180.dp) {
-                HistogramChart(
-                    series1  = linksS.map { it.avgDia },
-                    color1   = ArmLinksDiaColor,
-                    series2  = rechtsS.map { it.avgDia },
-                    color2   = ArmRechtsDiaColor,
-                    modifier = Modifier.fillMaxSize(),
+                    sysLinks  = linksS.map { it.avgSys },
+                    sysRechts = rechtsS.map { it.avgSys },
+                    diaLinks  = linksS.map { it.avgDia },
+                    diaRechts = rechtsS.map { it.avgDia },
+                    modifier  = Modifier.fillMaxSize(),
                 )
             }
 
@@ -241,20 +232,22 @@ private fun ChartCard(title: String, height: androidx.compose.ui.unit.Dp, conten
 
 // ── Histogramm ────────────────────────────────────────────────────────────────
 
-private val ArmLinksColor    = Color(0xFF1565C0)   // dunkelblau  (Sys Links)
-private val ArmRechtsColor   = Color(0xFF90CAF9)   // hellblau    (Sys Rechts)
-private val ArmLinksDiaColor = Color(0xFFB71C1C)   // dunkelrot   (Dia Links)
-private val ArmRechtsDiaColor= Color(0xFFEF9A9A)   // hellrot     (Dia Rechts)
-
 @Composable
 private fun HistogramChart(
-    series1:  List<Float>,
-    color1:   Color,
-    series2:  List<Float>,
-    color2:   Color,
-    modifier: Modifier,
+    sysLinks:  List<Float>,
+    sysRechts: List<Float>,
+    diaLinks:  List<Float>,
+    diaRechts: List<Float>,
+    modifier:  Modifier,
 ) {
-    if (series1.isEmpty() && series2.isEmpty()) return
+    val allVals = sysLinks + sysRechts + diaLinks + diaRechts
+    if (allVals.isEmpty()) return
+
+    // Sys: dunkel/hell Rot — Dia: dunkel/hell Blau
+    val sysLColor = BpRed
+    val sysRColor = BpRed.copy(alpha = 0.38f)
+    val diaLColor = BpBlue
+    val diaRColor = BpBlue.copy(alpha = 0.38f)
 
     Canvas(modifier = modifier) {
         val lp = 32.dp.toPx(); val rp = 8.dp.toPx()
@@ -263,16 +256,18 @@ private fun HistogramChart(
         val cH = size.height - tp - bp
 
         val binWidth = 5f
-        val allVals  = series1 + series2
         val dataMin  = (allVals.min() / binWidth).toInt() * binWidth
         val dataMax  = ((allVals.max() / binWidth).toInt() + 1) * binWidth
         val binCount = ((dataMax - dataMin) / binWidth).toInt().coerceAtLeast(1)
 
         fun binIdx(v: Float) = ((v - dataMin) / binWidth).toInt().coerceIn(0, binCount - 1)
 
-        val counts1  = IntArray(binCount).also { arr -> series1.forEach { arr[binIdx(it)]++ } }
-        val counts2  = IntArray(binCount).also { arr -> series2.forEach { arr[binIdx(it)]++ } }
-        val maxCount = (counts1.max().coerceAtLeast(counts2.max())).coerceAtLeast(1)
+        val cSysL = IntArray(binCount).also { arr -> sysLinks.forEach  { arr[binIdx(it)]++ } }
+        val cSysR = IntArray(binCount).also { arr -> sysRechts.forEach { arr[binIdx(it)]++ } }
+        val cDiaL = IntArray(binCount).also { arr -> diaLinks.forEach  { arr[binIdx(it)]++ } }
+        val cDiaR = IntArray(binCount).also { arr -> diaRechts.forEach { arr[binIdx(it)]++ } }
+
+        val maxCount = listOf(cSysL.max(), cSysR.max(), cDiaL.max(), cDiaR.max()).max().coerceAtLeast(1)
 
         fun xPx(v: Float)  = lp + cW * (v - dataMin) / (dataMax - dataMin)
         fun barTop(n: Int) = tp + cH * (1f - n.toFloat() / maxCount)
@@ -297,28 +292,31 @@ private fun HistogramChart(
         // Baseline
         drawLine(Color(0xFFAAAAAA), Offset(lp, tp + cH), Offset(lp + cW, tp + cH), strokeWidth = 1.dp.toPx())
 
-        // Balken
-        val slotW = cW / binCount
-        val gap   = (slotW * 0.06f).coerceAtLeast(1.dp.toPx())
-        val barW  = ((slotW - gap * 3f) / 2f).coerceAtLeast(1.dp.toPx())
+        // 4 Balken pro Bin: [SysL | SysR] Lücke [DiaL | DiaR]
+        val slotW    = cW / binCount
+        val outerGap = (slotW * 0.05f).coerceAtLeast(0.8.dp.toPx())
+        val midGap   = (slotW * 0.10f).coerceAtLeast(1.5.dp.toPx())
+        val innerGap = (slotW * 0.02f).coerceAtLeast(0.5.dp.toPx())
+        val barW     = ((slotW - outerGap * 2 - midGap - innerGap * 2) / 4f).coerceAtLeast(1.dp.toPx())
 
         for (i in 0 until binCount) {
-            val slotLeft = lp + slotW * i
+            val x0 = lp + slotW * i + outerGap
+            val xSysR = x0 + barW + innerGap
+            val xDiaL = xSysR + barW + midGap
+            val xDiaR = xDiaL + barW + innerGap
 
-            if (counts1[i] > 0) {
-                val h = cH - (barTop(counts1[i]) - tp)
-                drawRect(color1, Offset(slotLeft + gap, barTop(counts1[i])), Size(barW, h))
-            }
-            if (counts2[i] > 0) {
-                val h = cH - (barTop(counts2[i]) - tp)
-                drawRect(color2, Offset(slotLeft + gap * 2f + barW, barTop(counts2[i])), Size(barW, h))
-            }
+            if (cSysL[i] > 0) drawRect(sysLColor, Offset(x0,    barTop(cSysL[i])), Size(barW, cH - (barTop(cSysL[i]) - tp)))
+            if (cSysR[i] > 0) drawRect(sysRColor, Offset(xSysR, barTop(cSysR[i])), Size(barW, cH - (barTop(cSysR[i]) - tp)))
+            if (cDiaL[i] > 0) drawRect(diaLColor, Offset(xDiaL, barTop(cDiaL[i])), Size(barW, cH - (barTop(cDiaL[i]) - tp)))
+            if (cDiaR[i] > 0) drawRect(diaRColor, Offset(xDiaR, barTop(cDiaR[i])), Size(barW, cH - (barTop(cDiaR[i]) - tp)))
         }
 
-        // Mittelwert-Linien
+        // Mittelwert-Linien (Sys gesamt, Dia gesamt)
         val meanLabelPaint = Paint().apply { textSize = 9.sp.toPx(); isFakeBoldText = true; textAlign = Paint.Align.CENTER }
         val meanBgPaint    = Paint().apply { color = android.graphics.Color.argb(210, 255, 255, 255) }
-        listOf(series1 to color1, series2 to color2).forEachIndexed { idx, (series, color) ->
+        val sysAll = sysLinks + sysRechts
+        val diaAll = diaLinks + diaRechts
+        listOf(sysAll to sysLColor, diaAll to diaLColor).forEachIndexed { idx, (series, color) ->
             if (series.isEmpty()) return@forEachIndexed
             val mean  = series.average().toFloat()
             val meanX = xPx(mean).coerceIn(lp + 1f, lp + cW - 1f)
